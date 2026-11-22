@@ -1,26 +1,73 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-gb-bg-hard: #1d2021;
+  --color-gb-bg: #282828;
+  --color-gb-bg-soft: #32302f;
+  --color-gb-bg1: #3c3836;
+  --color-gb-bg2: #504945;
+  --color-gb-bg3: #665c54;
+  --color-gb-bg4: #7c6f64;
+
+  --color-gb-fg0: #fbf1c7;
+  --color-gb-fg: #ebdbb2;
+  --color-gb-fg2: #d5c4a1;
+  --color-gb-fg3: #bdae93;
+  --color-gb-fg4: #a89984;
+  --color-gb-gray: #928374;
+
+  --color-gb-red: #cc241d;
+  --color-gb-red-bright: #fb4934;
+  --color-gb-green: #98971a;
+  --color-gb-green-bright: #b8bb26;
+  --color-gb-yellow: #d79921;
+  --color-gb-yellow-bright: #fabd2f;
+  --color-gb-blue: #458588;
+  --color-gb-blue-bright: #83a598;
+  --color-gb-purple: #b16286;
+  --color-gb-purple-bright: #d3869b;
+  --color-gb-aqua: #689d6a;
+  --color-gb-aqua-bright: #8ec07c;
+  --color-gb-orange: #d65d0e;
+  --color-gb-orange-bright: #fe8019;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #1d2021;
+    --foreground: #ebdbb2;
+  }
+
+  body {
+    background-color: #1d2021;
+    color: #ebdbb2;
+    min-height: 100vh;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Modern Web Guidance Dialog standards */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgba(15, 17, 18, 0.78);
+  backdrop-filter: blur(6px);
+}
+
+/* Gruvbox Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #1d2021;
+}
+::-webkit-scrollbar-thumb {
+  background: #504945;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #665c54;
 }
