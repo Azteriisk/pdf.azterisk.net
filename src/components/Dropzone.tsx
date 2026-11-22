@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
-import { UploadCloud, Plus, FilePlus, Sparkles, ShieldCheck } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { UploadCloud, Plus, FileCode2, Lock, Cpu, Command } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface DropzoneProps {
@@ -13,6 +13,22 @@ interface DropzoneProps {
 export function Dropzone({ onFilesSelected, isCompact = false, isLoading = false }: DropzoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Global paste support (Ctrl+V)
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (!e.clipboardData || !e.clipboardData.files) return;
+      const files = Array.from(e.clipboardData.files).filter(
+        (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
+      );
+      if (files.length > 0) {
+        onFilesSelected(files);
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [onFilesSelected]);
 
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
@@ -75,13 +91,14 @@ export function Dropzone({ onFilesSelected, isCompact = false, isLoading = false
           onClick={() => inputRef.current?.click()}
           disabled={isLoading}
           className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer',
-            'bg-[#32302f] hover:bg-[#3c3836] text-[#fabd2f] border border-[#fabd2f]/30 hover:border-[#fabd2f]',
+            'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono font-medium transition-colors cursor-pointer',
+            'bg-[#282828] hover:bg-[#32302f] hover:border-[#665c54] text-[#fabd2f] border border-[#3c3836]',
             isLoading && 'opacity-50 cursor-not-allowed'
           )}
+          title="Append more PDF files into the workspace"
         >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Add More PDFs</span>
+          <Plus className="w-3.5 h-3.5 text-[#fabd2f]" />
+          <span>ADD PDFS</span>
         </button>
       </div>
     );
@@ -95,11 +112,11 @@ export function Dropzone({ onFilesSelected, isCompact = false, isLoading = false
       onDrop={handleDrop}
       onClick={() => inputRef.current?.click()}
       className={cn(
-        'relative group cursor-pointer border-2 border-dashed rounded-2xl p-8 sm:p-14 text-center transition-all duration-200',
-        'bg-[#282828]/50 hover:bg-[#282828]/80',
+        'relative cursor-pointer rounded-xl border border-dashed transition-all p-8 sm:p-12 text-center',
+        'bg-[#282828] hover:bg-[#282828]/90',
         isDragOver
-          ? 'border-[#fabd2f] bg-[#32302f]/80 scale-[1.01]'
-          : 'border-[#504945] hover:border-[#7c6f64]'
+          ? 'border-[#fabd2f] bg-[#32302f] ring-1 ring-[#fabd2f]'
+          : 'border-[#504945] hover:border-[#665c54]'
       )}
     >
       <input
@@ -112,42 +129,69 @@ export function Dropzone({ onFilesSelected, isCompact = false, isLoading = false
         disabled={isLoading}
       />
 
-      <div className="max-w-md mx-auto flex flex-col items-center justify-center">
+      <div className="max-w-xl mx-auto flex flex-col items-center">
+        {/* Terminal/Technical Icon */}
         <div
           className={cn(
-            'w-16 h-16 sm:w-20 sm:h-20 mb-5 rounded-2xl flex items-center justify-center transition-transform',
-            'bg-[#32302f] text-[#fabd2f] border border-[#504945] group-hover:scale-105',
-            isDragOver && 'border-[#fabd2f] text-[#fabd2f] shadow-lg shadow-[#fabd2f]/10'
+            'w-14 h-14 mb-4 rounded-lg flex items-center justify-center border transition-colors',
+            'bg-[#1d2021] text-[#fabd2f] border-[#3c3836]',
+            isDragOver ? 'border-[#fabd2f]' : 'group-hover:border-[#504945]'
           )}
         >
           {isLoading ? (
-            <div className="w-8 h-8 border-3 border-[#fabd2f] border-t-transparent rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 border-[#fabd2f] border-t-transparent rounded-full animate-spin" />
           ) : (
-            <UploadCloud className="w-8 h-8 sm:w-10 sm:h-10" />
+            <UploadCloud className="w-7 h-7 text-[#fabd2f]" />
           )}
         </div>
 
-        <h3 className="text-lg sm:text-xl font-bold text-[#fbf1c7] mb-2 tracking-tight">
-          {isLoading ? 'Processing PDFs...' : 'Drop PDF files here, or click to browse'}
-        </h3>
-        <p className="text-sm text-[#bdae93] mb-6">
-          Merge multiple PDFs, split ranges, rearrange pages, delete pages, sign, and annotate.
+        <h2 className="text-base sm:text-lg font-bold text-[#fbf1c7] font-mono tracking-tight mb-1">
+          {isLoading ? 'Parsing Document Structure...' : 'Drop PDF files here to initialize session'}
+        </h2>
+        <p className="text-xs text-[#a89984] font-mono mb-6">
+          Click to browse local files or paste bytes directly from clipboard (Ctrl+V)
         </p>
 
-        {/* Feature Pills */}
-        <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-[#a89984]">
-          <span className="px-2.5 py-1 rounded-full bg-[#1d2021] border border-[#3c3836]">
-            📑 Merge & Split
-          </span>
-          <span className="px-2.5 py-1 rounded-full bg-[#1d2021] border border-[#3c3836]">
-            🔀 Visual Drag & Drop
-          </span>
-          <span className="px-2.5 py-1 rounded-full bg-[#1d2021] border border-[#3c3836]">
-            ✍️ Edit & Digital Sign
-          </span>
-          <span className="px-2.5 py-1 rounded-full bg-[#1d2021] border border-[#3c3836]">
-            🔒 100% Private In-Browser
-          </span>
+        {/* Technical Specification Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full text-left">
+          <div className="p-2.5 rounded bg-[#1d2021] border border-[#3c3836]">
+            <div className="flex items-center gap-1.5 text-[11px] font-mono text-[#fe8019] mb-1">
+              <FileCode2 className="w-3.5 h-3.5" />
+              <span>SPECIFICATION</span>
+            </div>
+            <div className="text-[11px] font-mono text-[#ebdbb2]">
+              ISO 32000-1 / 32000-2
+            </div>
+            <div className="text-[10px] text-[#928374] font-mono">
+              Merge, split & byte edit
+            </div>
+          </div>
+
+          <div className="p-2.5 rounded bg-[#1d2021] border border-[#3c3836]">
+            <div className="flex items-center gap-1.5 text-[11px] font-mono text-[#83a598] mb-1">
+              <Cpu className="w-3.5 h-3.5" />
+              <span>PIPELINE</span>
+            </div>
+            <div className="text-[11px] font-mono text-[#ebdbb2]">
+              Worker-Thread Canvas
+            </div>
+            <div className="text-[10px] text-[#928374] font-mono">
+              Vector & bitmap rendering
+            </div>
+          </div>
+
+          <div className="p-2.5 rounded bg-[#1d2021] border border-[#3c3836]">
+            <div className="flex items-center gap-1.5 text-[11px] font-mono text-[#8ec07c] mb-1">
+              <Lock className="w-3.5 h-3.5" />
+              <span>ISOLATION</span>
+            </div>
+            <div className="text-[11px] font-mono text-[#ebdbb2]">
+              Local Memory Only
+            </div>
+            <div className="text-[10px] text-[#928374] font-mono">
+              Zero telemetry or uploads
+            </div>
+          </div>
         </div>
       </div>
     </div>

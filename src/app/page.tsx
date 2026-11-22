@@ -26,12 +26,13 @@ import {
   downloadBlob,
 } from '@/lib/utils';
 import JSZip from 'jszip';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { Check, Info } from 'lucide-react';
 
 export default function Home() {
   const [sourceDocs, setSourceDocs] = useState<Map<string, SourceDocument>>(new Map());
   const [pages, setPages] = useState<WorkspacePage[]>([]);
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
+  const [lastSelectedPageId, setLastSelectedPageId] = useState<string | null>(null);
   const [docName, setDocName] = useState('merged_document.pdf');
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -41,8 +42,8 @@ export default function Home() {
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
   const [isPageNumbersModalOpen, setIsPageNumbersModalOpen] = useState(false);
 
-  // Toast Notification
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Status Notification
+  const [statusLog, setStatusLog] = useState<string | null>(null);
 
   // Page numbering options
   const [pageNumbering, setPageNumbering] = useState<PageNumberingOptions>({
@@ -54,12 +55,12 @@ export default function Home() {
     startNumber: 1,
   });
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
+  const showStatus = useCallback((msg: string) => {
+    setStatusLog(msg);
     setTimeout(() => {
-      setToastMessage((cur) => (cur === msg ? null : cur));
+      setStatusLog((cur) => (cur === msg ? null : cur));
     }, 4000);
-  };
+  }, []);
 
   // Process incoming PDF files
   const handleFilesSelected = async (files: File[]) => {
@@ -74,7 +75,6 @@ export default function Home() {
         const fileId = generateId();
         const arrayBuffer = await file.arrayBuffer();
 
-        // Query document info
         const { numPages, dimensions } = await getDocumentInfo(arrayBuffer);
 
         const sourceDoc: SourceDocument = {
@@ -86,12 +86,10 @@ export default function Home() {
         };
         newSourceDocs.set(fileId, sourceDoc);
 
-        // Generate pages and their thumbnails
         for (let pageIdx = 0; pageIdx < numPages; pageIdx++) {
           const pageId = `${fileId}_p${pageIdx + 1}_${generateId()}`;
           const dim = dimensions[pageIdx] || { width: 595, height: 842 };
 
-          // Render thumbnail
           let thumbUrl = '';
           try {
             const { url } = await renderThumbnail(arrayBuffer, pageIdx, 0, 300);
@@ -117,23 +115,40 @@ export default function Home() {
       setSourceDocs(newSourceDocs);
       setPages((prev) => [...prev, ...newPages]);
 
-      // If first file, adapt filename
       if (pages.length === 0 && files.length > 0) {
         const base = files[0].name.replace(/\.[^/.]+$/, '');
         setDocName(files.length === 1 ? `${base}_edited.pdf` : `${base}_merged.pdf`);
       }
 
-      showToast(`Added ${files.length} document${files.length > 1 ? 's' : ''} (${newPages.length} pages total)`);
+      showStatus(`INGESTED ${files.length} FILE${files.length > 1 ? 'S' : ''} (+${newPages.length} PAGES)`);
     } catch (err: any) {
       console.error('Error loading PDF files:', err);
-      showToast('Error loading one or more PDF files. Please ensure they are valid PDFs.');
+      showStatus('ERROR: FAILED TO PARSE PDF BYTES');
     } finally {
       setIsLoadingFiles(false);
     }
   };
 
-  // Toggle selection
-  const handleToggleSelect = (pageId: string) => {
+  // Toggle selection with Shift-click range support
+  const handleToggleSelect = (pageId: string, e: React.MouseEvent) => {
+    if (e.shiftKey && lastSelectedPageId && lastSelectedPageId !== pageId) {
+      const lastIdx = pages.findIndex((p) => p.id === lastSelectedPageId);
+      const curIdx = pages.findIndex((p) => p.id === pageId);
+      if (lastIdx !== -1 && curIdx !== -1) {
+        const start = Math.min(lastIdx, curIdx);
+        const end = Math.max(lastIdx, curIdx);
+        setSelectedPageIds((prev) => {
+          const next = new Set(prev);
+          for (let i = start; i <= end; i++) {
+            next.add(pages[i].id);
+          }
+          return next;
+        });
+        setLastSelectedPageId(pageId);
+        return;
+      }
+    }
+
     setSelectedPageIds((prev) => {
       const next = new Set(prev);
       if (next.has(pageId)) {
@@ -143,14 +158,26 @@ export default function Home() {
       }
       return next;
     });
+    setLastSelectedPageId(pageId);
   };
 
-  const handleSelectAll = () => {
+  const handleSelectAll = useCallback(() => {
     setSelectedPageIds(new Set(pages.map((p) => p.id)));
+  }, [pages]);
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedPageIds(new Set());
+    setLastSelectedPageId(null);
+  }, []);
+
+  const handleSelectOdd = () => {
+    const oddIds = pages.filter((_, idx) => idx % 2 === 0).map((p) => p.id);
+    setSelectedPageIds(new Set(oddIds));
   };
 
-  const handleDeselectAll = () => {
-    setSelectedPageIds(new Set());
+  const handleSelectEven = () => {
+    const evenIds = pages.filter((_, idx) => idx % 2 === 1).map((p) => p.id);
+    setSelectedPageIds(new Set(evenIds));
   };
 
   // Rotate single page
@@ -167,19 +194,20 @@ export default function Home() {
   };
 
   // Rotate selected pages or all
-  const handleRotateSelected = () => {
+  const handleRotateSelected = useCallback((direction: 'cw' | 'ccw' = 'cw') => {
+    const delta = direction === 'cw' ? 90 : 270;
     const targetIds = selectedPageIds.size > 0 ? selectedPageIds : new Set(pages.map((p) => p.id));
     setPages((prev) =>
       prev.map((p) => {
         if (!targetIds.has(p.id)) return p;
         return {
           ...p,
-          rotation: (p.rotation + 90) % 360,
+          rotation: (p.rotation + delta) % 360,
         };
       })
     );
-    showToast(`Rotated ${targetIds.size} page${targetIds.size > 1 ? 's' : ''} 90°`);
-  };
+    showStatus(`ROTATED ${targetIds.size} PAGE${targetIds.size > 1 ? 'S' : ''} ${direction.toUpperCase()}`);
+  }, [selectedPageIds, pages, showStatus]);
 
   // Delete single page
   const handleDeletePage = (pageId: string) => {
@@ -192,13 +220,14 @@ export default function Home() {
   };
 
   // Delete selected pages
-  const handleDeleteSelected = () => {
+  const handleDeleteSelected = useCallback(() => {
     if (selectedPageIds.size === 0) return;
     const count = selectedPageIds.size;
     setPages((prev) => prev.filter((p) => !selectedPageIds.has(p.id)));
     setSelectedPageIds(new Set());
-    showToast(`Deleted ${count} page${count > 1 ? 's' : ''}`);
-  };
+    setLastSelectedPageId(null);
+    showStatus(`REMOVED ${count} PAGE${count > 1 ? 'S' : ''}`);
+  }, [selectedPageIds, showStatus]);
 
   // Duplicate single page
   const handleDuplicatePage = (pageId: string) => {
@@ -215,11 +244,11 @@ export default function Home() {
       next.splice(index + 1, 0, clone);
       return next;
     });
-    showToast('Page duplicated');
+    showStatus('DUPLICATED 1 PAGE');
   };
 
   // Duplicate selected pages
-  const handleDuplicateSelected = () => {
+  const handleDuplicateSelected = useCallback(() => {
     if (selectedPageIds.size === 0) return;
     setPages((prev) => {
       const next: WorkspacePage[] = [];
@@ -235,8 +264,8 @@ export default function Home() {
       }
       return next;
     });
-    showToast(`Duplicated ${selectedPageIds.size} page${selectedPageIds.size > 1 ? 's' : ''}`);
-  };
+    showStatus(`DUPLICATED ${selectedPageIds.size} PAGE${selectedPageIds.size > 1 ? 'S' : ''}`);
+  }, [selectedPageIds, showStatus]);
 
   // Reorder pages
   const handleReorder = (fromIndex: number, toIndex: number) => {
@@ -254,7 +283,6 @@ export default function Home() {
     setPages((prev) => prev.map((p) => (p.id === updatedPage.id ? updatedPage : p)));
     setEditingPage(null);
 
-    // Re-render thumbnail to reflect updated rotation/annotations
     const srcDoc = sourceDocs.get(updatedPage.sourceDocId);
     if (srcDoc) {
       try {
@@ -271,11 +299,11 @@ export default function Home() {
         console.warn('Could not refresh thumbnail:', e);
       }
     }
-    showToast('Page changes applied');
+    showStatus('COMMITTED ANNOTATIONS TO PAGE');
   };
 
   // Export full PDF
-  const handleExport = async () => {
+  const handleExport = useCallback(async () => {
     if (pages.length === 0) return;
     setIsExporting(true);
 
@@ -283,35 +311,34 @@ export default function Home() {
       const pdfBytes = await buildPdf(pages, sourceDocs, pageNumbering);
       const filename = docName.toLowerCase().endsWith('.pdf') ? docName : `${docName}.pdf`;
       downloadBytes(pdfBytes, filename);
-      showToast(`Exported ${filename} (${pages.length} pages)`);
+      showStatus(`EXPORT COMPLETE: ${filename} (${pages.length} PAGES)`);
     } catch (err: any) {
       console.error('Export failed:', err);
-      showToast('Failed to export PDF: ' + (err.message || 'Unknown error'));
+      showStatus('ERROR: ' + (err.message || 'EXPORT FAILED'));
     } finally {
       setIsExporting(false);
     }
-  };
+  }, [pages, sourceDocs, pageNumbering, docName, showStatus]);
 
-  // Execute Split modal action
+  // Split document execution
   const handleExecuteSplit = async (options: SplitOptions) => {
     const baseName = docName.replace(/\.pdf$/i, '');
 
     if (options.mode === 'all-pages') {
       const zipBlob = await splitIntoZip(pages, sourceDocs, baseName);
-      downloadBlob(zipBlob, `${baseName}_AllPages_Split.zip`);
-      showToast(`Exported ${pages.length} individual pages as a ZIP`);
+      downloadBlob(zipBlob, `${baseName}_AllPages.zip`);
+      showStatus(`BURST COMPLETE: ${pages.length} PAGES IN ZIP`);
     } else if (options.mode === 'ranges' && options.ranges) {
       const zipBlob = await splitByRangesToZip(options.ranges, pages, sourceDocs, baseName);
-      downloadBlob(zipBlob, `${baseName}_Ranges_Split.zip`);
-      showToast(`Exported custom ranges as a ZIP`);
+      downloadBlob(zipBlob, `${baseName}_Ranges.zip`);
+      showStatus('PARTITION COMPLETE: RANGES IN ZIP');
     } else if (options.mode === 'selected') {
       const selected = pages.filter((p) => selectedPageIds.has(p.id));
       if (selected.length === 0) return;
       const pdfBytes = await buildPdf(selected, sourceDocs, pageNumbering);
       downloadBytes(pdfBytes, `${baseName}_Selected_${selected.length}p.pdf`);
-      showToast(`Exported ${selected.length} selected pages`);
+      showStatus(`EXTRACTED ${selected.length} PAGES`);
     } else if (options.mode === 'by-document') {
-      // Split by original document
       const zip = new JSZip();
       for (const [docId, doc] of sourceDocs.entries()) {
         const docPages = pages.filter((p) => p.sourceDocId === docId);
@@ -322,22 +349,58 @@ export default function Home() {
         }
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' });
-      downloadBlob(zipBlob, `${baseName}_ByDocument.zip`);
-      showToast(`Exported split files by original document as a ZIP`);
+      downloadBlob(zipBlob, `${baseName}_BySourceDoc.zip`);
+      showStatus(`SPLIT COMPLETE: ${sourceDocs.size} SOURCE DOCS`);
     }
   };
 
   // Reset workspace
   const handleReset = () => {
     if (pages.length === 0) return;
-    if (window.confirm('Start a new session? This will clear all uploaded pages and unsaved edits.')) {
+    if (window.confirm('Reset current workspace and clear all buffered pages?')) {
       setSourceDocs(new Map());
       setPages([]);
       setSelectedPageIds(new Set());
+      setLastSelectedPageId(null);
       setDocName('merged_document.pdf');
-      setToastMessage(null);
+      setStatusLog(null);
     }
   };
+
+  // Workspace-level hotkeys (Ctrl+A, Delete, Ctrl+S, R, D)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      if (editingPage) return; // let editor modal handle its own keys
+
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        handleSelectAll();
+      } else if (e.key === 'Escape') {
+        handleDeselectAll();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        handleDeleteSelected();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        handleExport();
+      } else if (e.key === 'r' || e.key === 'R') {
+        handleRotateSelected('cw');
+      } else if (e.key === 'd' || e.key === 'D') {
+        handleDuplicateSelected();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [
+    editingPage,
+    handleSelectAll,
+    handleDeselectAll,
+    handleDeleteSelected,
+    handleExport,
+    handleRotateSelected,
+    handleDuplicateSelected,
+  ]);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#1d2021] text-[#ebdbb2]">
@@ -351,9 +414,8 @@ export default function Home() {
       {/* Main Workspace */}
       <main className="flex-1 flex flex-col">
         {pages.length === 0 ? (
-          // Empty State / Hero Dropzone
           <div className="flex-1 flex items-center justify-center p-4 sm:p-8">
-            <div className="max-w-2xl w-full">
+            <div className="max-w-xl w-full">
               <Dropzone
                 onFilesSelected={handleFilesSelected}
                 isLoading={isLoadingFiles}
@@ -361,7 +423,6 @@ export default function Home() {
             </div>
           </div>
         ) : (
-          // Active Workspace
           <>
             <WorkspaceToolbar
               docName={docName}
@@ -370,6 +431,8 @@ export default function Home() {
               totalCount={pages.length}
               onSelectAll={handleSelectAll}
               onDeselectAll={handleDeselectAll}
+              onSelectOdd={handleSelectOdd}
+              onSelectEven={handleSelectEven}
               onRotateSelected={handleRotateSelected}
               onDeleteSelected={handleDeleteSelected}
               onDuplicateSelected={handleDuplicateSelected}
@@ -425,11 +488,11 @@ export default function Home() {
         onChange={setPageNumbering}
       />
 
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-[#282828] text-[#fbf1c7] border border-[#504945] shadow-2xl animate-fade-in text-xs font-medium">
-          <CheckCircle2 className="w-4 h-4 text-[#b8bb26] shrink-0" />
-          <span>{toastMessage}</span>
+      {/* Telemetry Status Notification */}
+      {statusLog && (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3 py-2 rounded bg-[#282828] text-[#fbf1c7] border border-[#504945] shadow-xl text-[11px] font-mono">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#b8bb26] animate-pulse" />
+          <span>{statusLog}</span>
         </div>
       )}
     </div>

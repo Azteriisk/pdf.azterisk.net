@@ -7,7 +7,7 @@ import { PageCard } from './PageCard';
 interface PageGridProps {
   pages: WorkspacePage[];
   selectedPageIds: Set<string>;
-  onToggleSelect: (pageId: string) => void;
+  onToggleSelect: (pageId: string, e: React.MouseEvent) => void;
   onRotate: (pageId: string) => void;
   onDelete: (pageId: string) => void;
   onDuplicate: (pageId: string) => void;
@@ -31,7 +31,6 @@ export function PageGrid({
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
     e.dataTransfer.effectAllowed = 'move';
-    // Transparent or custom drag preview
     e.dataTransfer.setData('text/plain', String(index));
   };
 
@@ -58,7 +57,7 @@ export function PageGrid({
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 p-4 sm:p-6 max-w-7xl mx-auto">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 sm:gap-4 p-4 sm:p-6 max-w-7xl mx-auto">
       {pages.map((page, index) => (
         <PageCard
           key={page.id}

@@ -40,35 +40,35 @@ export function PageNumberingModal({
     <dialog
       ref={dialogRef}
       aria-labelledby="num-title"
-      className="fixed inset-0 m-auto p-0 bg-transparent text-[#ebdbb2] border-0 backdrop:bg-[#1d2021]/80 backdrop:backdrop-blur-sm z-50 max-w-md w-full"
+      className="fixed inset-0 m-auto p-0 bg-transparent text-[#ebdbb2] border-0 backdrop:bg-[#1d2021]/80 backdrop:backdrop-blur-sm z-50 max-w-md w-full font-mono text-xs"
       onClose={onClose}
     >
-      <div className="bg-[#282828] border border-[#504945] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="bg-[#282828] border border-[#504945] rounded shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#3c3836]">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#3c3836] bg-[#1d2021]">
           <div className="flex items-center gap-2">
-            <Hash className="w-5 h-5 text-[#fabd2f]" />
-            <h3 id="num-title" className="font-bold text-[#fbf1c7] text-base">
-              Page Numbers
-            </h3>
+            <Hash className="w-4 h-4 text-[#fabd2f]" />
+            <span id="num-title" className="font-bold text-[#fbf1c7] text-xs">
+              PAGE NUMBERING METADATA
+            </span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-md text-[#a89984] hover:text-[#ebdbb2] hover:bg-[#3c3836] cursor-pointer"
+            className="p-1 rounded text-[#a89984] hover:text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-5 flex flex-col gap-4 text-xs">
+        <div className="p-4 flex flex-col gap-3">
           {/* Enable Toggle */}
-          <label className="flex items-center justify-between p-3 rounded-xl bg-[#1d2021] border border-[#3c3836] cursor-pointer">
+          <label className="flex items-center justify-between p-2.5 rounded bg-[#1d2021] border border-[#3c3836] cursor-pointer">
             <div>
-              <div className="font-semibold text-sm text-[#fbf1c7]">Add Page Numbers</div>
-              <div className="text-[#a89984] text-[11px]">
-                Stamp page numbers onto exported PDF pages
+              <div className="font-bold text-xs text-[#fbf1c7]">STAMP PAGE NUMBERS</div>
+              <div className="text-[#a89984] text-[10px]">
+                Draw dynamic index coordinates onto exported pages
               </div>
             </div>
             <input
@@ -80,10 +80,10 @@ export function PageNumberingModal({
           </label>
 
           {options.enabled && (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2.5">
               {/* Position */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[#a89984] font-medium">Position</span>
+              <div className="flex flex-col gap-1">
+                <span className="text-[#928374] text-[11px]">POSITION</span>
                 <select
                   value={options.position}
                   onChange={(e) =>
@@ -92,7 +92,7 @@ export function PageNumberingModal({
                       position: e.target.value as PageNumberingOptions['position'],
                     })
                   }
-                  className="bg-[#1d2021] border border-[#504945] focus:border-[#fabd2f] rounded-lg px-3 py-2 text-xs text-[#fbf1c7] outline-none"
+                  className="bg-[#1d2021] border border-[#504945] focus:border-[#fabd2f] rounded px-2.5 py-1.5 text-xs text-[#fbf1c7] outline-none"
                 >
                   <option value="bottom-center">Bottom Center (Footer)</option>
                   <option value="bottom-right">Bottom Right</option>
@@ -103,8 +103,8 @@ export function PageNumberingModal({
               </div>
 
               {/* Format */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[#a89984] font-medium">Format</span>
+              <div className="flex flex-col gap-1">
+                <span className="text-[#928374] text-[11px]">FORMAT TEMPLATE</span>
                 <select
                   value={options.format}
                   onChange={(e) =>
@@ -113,7 +113,7 @@ export function PageNumberingModal({
                       format: e.target.value as PageNumberingOptions['format'],
                     })
                   }
-                  className="bg-[#1d2021] border border-[#504945] focus:border-[#fabd2f] rounded-lg px-3 py-2 text-xs text-[#fbf1c7] outline-none"
+                  className="bg-[#1d2021] border border-[#504945] focus:border-[#fabd2f] rounded px-2.5 py-1.5 text-xs text-[#fbf1c7] outline-none"
                 >
                   <option value="Page {n} of {total}">Page 1 of 10</option>
                   <option value="Page {n}">Page 1</option>
@@ -122,9 +122,9 @@ export function PageNumberingModal({
               </div>
 
               {/* Font Size & Starting number */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[#a89984] font-medium">Font Size (pt)</span>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[#928374] text-[11px]">FONT SIZE (PT)</span>
                   <input
                     type="number"
                     min={6}
@@ -136,11 +136,11 @@ export function PageNumberingModal({
                         fontSize: parseInt(e.target.value, 10) || 10,
                       })
                     }
-                    className="bg-[#1d2021] border border-[#504945] focus:border-[#fabd2f] rounded-lg px-3 py-2 text-xs text-[#fbf1c7] outline-none"
+                    className="bg-[#1d2021] border border-[#504945] focus:border-[#fabd2f] rounded px-2.5 py-1.5 text-xs text-[#fbf1c7] outline-none"
                   />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[#a89984] font-medium">Start Number</span>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[#928374] text-[11px]">START INDEX</span>
                   <input
                     type="number"
                     min={1}
@@ -151,7 +151,7 @@ export function PageNumberingModal({
                         startNumber: parseInt(e.target.value, 10) || 1,
                       })
                     }
-                    className="bg-[#1d2021] border border-[#504945] focus:border-[#fabd2f] rounded-lg px-3 py-2 text-xs text-[#fbf1c7] outline-none"
+                    className="bg-[#1d2021] border border-[#504945] focus:border-[#fabd2f] rounded px-2.5 py-1.5 text-xs text-[#fbf1c7] outline-none"
                   />
                 </div>
               </div>
@@ -160,14 +160,14 @@ export function PageNumberingModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end px-5 py-3.5 border-t border-[#3c3836] bg-[#1d2021]/50">
+        <div className="flex items-center justify-end px-4 py-2.5 border-t border-[#3c3836] bg-[#1d2021]">
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-[#fabd2f] text-[#1d2021] hover:bg-[#fabd2f]/90 cursor-pointer shadow-md transition-all"
+            className="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-bold bg-[#fabd2f] text-[#1d2021] hover:bg-[#fabd2f]/90 cursor-pointer transition-all"
           >
-            <Check className="w-4 h-4 stroke-[2.5]" />
-            Done
+            <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+            CONFIRM
           </button>
         </div>
       </div>

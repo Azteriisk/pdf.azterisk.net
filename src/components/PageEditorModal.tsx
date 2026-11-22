@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   X,
   Check,
-  RotateCw,
   Undo2,
   Redo2,
   Trash2,
@@ -15,9 +14,9 @@ import {
   FileSignature,
   ZoomIn,
   ZoomOut,
-  Stamp,
   Maximize2,
   Move,
+  Layers,
 } from 'lucide-react';
 import {
   WorkspacePage,
@@ -41,7 +40,7 @@ interface PageEditorModalProps {
   onSave: (updatedPage: WorkspacePage) => void;
 }
 
-type ToolMode = 'select' | 'pen' | 'highlighter' | 'text' | 'redact' | 'whiteout' | 'stamp';
+type ToolMode = 'select' | 'pen' | 'highlighter' | 'text' | 'redact' | 'whiteout';
 
 export function PageEditorModal({
   page,
@@ -60,7 +59,7 @@ export function PageEditorModal({
   const [penWidth, setPenWidth] = useState(3);
   const [highlightColor, setHighlightColor] = useState('#fabd2f');
   const [highlightWidth, setHighlightWidth] = useState(24);
-  const [textSize, setTextSize] = useState(18);
+  const [textSize, setTextSize] = useState(16);
   const [textColor, setTextColor] = useState('#1d2021');
   const [textBold, setTextBold] = useState(true);
 
@@ -85,7 +84,8 @@ export function PageEditorModal({
   // Signature modal
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
 
-  // Page dimensions
+  // Telemetry
+  const [cursorCoords, setCursorCoords] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [pageDims, setPageDims] = useState<{ width: number; height: number }>({ width: 600, height: 800 });
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
 
@@ -135,35 +135,78 @@ export function PageEditorModal({
         }
       }
     } catch (err) {
-      console.error('Failed to load high res page preview:', err);
+      console.error('Failed to render page preview:', err);
     } finally {
       setIsLoadingPdf(false);
     }
   };
 
-  const pushStateToUndo = (newAnns: PageAnnotation[]) => {
+  const pushStateToUndo = useCallback((newAnns: PageAnnotation[]) => {
     setUndoStack((prev) => [...prev, annotations]);
     setRedoStack([]);
     setAnnotations(newAnns);
-  };
+  }, [annotations]);
 
-  const handleUndo = () => {
+  const handleUndo = useCallback(() => {
     if (undoStack.length === 0) return;
     const prev = undoStack[undoStack.length - 1];
     setRedoStack((r) => [...r, annotations]);
     setUndoStack((u) => u.slice(0, -1));
     setAnnotations(prev);
     setSelectedAnnId(null);
-  };
+  }, [undoStack, annotations]);
 
-  const handleRedo = () => {
+  const handleRedo = useCallback(() => {
     if (redoStack.length === 0) return;
     const next = redoStack[redoStack.length - 1];
     setUndoStack((u) => [...u, annotations]);
     setRedoStack((r) => r.slice(0, -1));
     setAnnotations(next);
     setSelectedAnnId(null);
-  };
+  }, [redoStack, annotations]);
+
+  const handleDeleteSelectedAnn = useCallback(() => {
+    if (!selectedAnnId) return;
+    pushStateToUndo(annotations.filter((a) => a.id !== selectedAnnId));
+    setSelectedAnnId(null);
+  }, [selectedAnnId, annotations, pushStateToUndo]);
+
+  // Keyboard accelerators inside modal
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing inside an input
+      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+
+      if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if (e.key === 'y' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        handleRedo();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        handleDeleteSelectedAnn();
+      } else if (e.key === 'v' || e.key === 'V') {
+        setActiveTool('select');
+      } else if (e.key === 'p' || e.key === 'P') {
+        setActiveTool('pen');
+      } else if (e.key === 'h' || e.key === 'H') {
+        setActiveTool('highlighter');
+      } else if (e.key === 't' || e.key === 'T') {
+        setActiveTool('text');
+      } else if (e.key === 'r' || e.key === 'R') {
+        setActiveTool('redact');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, handleUndo, handleRedo, handleDeleteSelectedAnn]);
 
   // Convert client coordinate into canvas page coordinate
   const getCanvasCoords = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -178,9 +221,8 @@ export function PageEditorModal({
     };
   };
 
-  // Pointer interactions on overlay
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return; // only left click
+    if (e.button !== 0) return;
     const coords = getCanvasCoords(e);
 
     if (activeTool === 'pen') {
@@ -196,7 +238,6 @@ export function PageEditorModal({
       setRectPreview({ x: coords.x, y: coords.y, w: 0, h: 0 });
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } else if (activeTool === 'text') {
-      // Add a text box at click
       const newText: TextAnnotation = {
         id: generateId(),
         type: 'text',
@@ -215,6 +256,7 @@ export function PageEditorModal({
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const coords = getCanvasCoords(e);
+    setCursorCoords({ x: Math.round(coords.x), y: Math.round(coords.y) });
 
     if (isDrawing && (activeTool === 'pen' || activeTool === 'highlighter')) {
       setCurrentDrawPoints((prev) => [...prev, coords]);
@@ -225,7 +267,6 @@ export function PageEditorModal({
       const h = Math.abs(coords.y - rectStart.y);
       setRectPreview({ x, y, w, h });
     } else if (draggingAnn) {
-      // Move selected annotation
       const updated = annotations.map((ann) => {
         if (ann.id !== draggingAnn.id) return ann;
         if ('x' in ann && 'y' in ann) {
@@ -262,7 +303,6 @@ export function PageEditorModal({
           };
           pushStateToUndo([...annotations, newDraw]);
         } else {
-          // Highlighter stroke
           const newDraw: DrawAnnotation = {
             id: generateId(),
             type: 'draw',
@@ -296,7 +336,6 @@ export function PageEditorModal({
     }
   };
 
-  // Add a Stamp
   const handleAddStamp = (stampText: string) => {
     const newStamp: StampAnnotation = {
       id: generateId(),
@@ -313,7 +352,6 @@ export function PageEditorModal({
     setActiveTool('select');
   };
 
-  // Add digital signature
   const handleAddSignature = (dataUrl: string) => {
     const newSig: ImageAnnotation = {
       id: generateId(),
@@ -330,21 +368,12 @@ export function PageEditorModal({
     setActiveTool('select');
   };
 
-  // Delete selected annotation
-  const handleDeleteSelectedAnn = () => {
-    if (!selectedAnnId) return;
-    pushStateToUndo(annotations.filter((a) => a.id !== selectedAnnId));
-    setSelectedAnnId(null);
-  };
-
-  // Save changes back to page
   const handleSave = () => {
     if (!page) return;
-    const updatedPage: WorkspacePage = {
+    onSave({
       ...page,
       annotations,
-    };
-    onSave(updatedPage);
+    });
     onClose();
   };
 
@@ -358,180 +387,122 @@ export function PageEditorModal({
         className="fixed inset-0 m-auto p-0 bg-transparent text-[#ebdbb2] border-0 backdrop:bg-[#1d2021]/85 backdrop:backdrop-blur-md z-40 w-[96vw] max-w-6xl h-[94vh] max-h-[900px]"
         onClose={onClose}
       >
-        <div className="bg-[#282828] border border-[#504945] rounded-2xl shadow-2xl h-full flex flex-col overflow-hidden">
+        <div className="bg-[#282828] border border-[#504945] rounded-lg shadow-2xl h-full flex flex-col overflow-hidden font-mono text-xs">
           {/* Top Bar */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-[#3c3836] bg-[#1d2021]/80">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#3c3836] bg-[#1d2021]">
             <div className="flex items-center gap-3">
-              <h2 id="editor-title" className="font-bold text-[#fbf1c7] text-base flex items-center gap-2">
-                <span>Edit Page #{page.sourcePageIndex + 1}</span>
-                <span className="text-xs text-[#a89984] font-normal truncate max-w-[200px]">
+              <span id="editor-title" className="font-bold text-[#fbf1c7] text-sm flex items-center gap-2">
+                <span>PAGE {String(page.sourcePageIndex + 1).padStart(2, '0')}</span>
+                <span className="text-[#928374] font-normal truncate max-w-[200px]">
                   ({page.sourceDocName})
                 </span>
-              </h2>
+              </span>
             </div>
 
-            {/* Undo/Redo & Zoom controls */}
-            <div className="flex items-center gap-2">
+            {/* Undo / Redo & Zoom */}
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={handleUndo}
                 disabled={undoStack.length === 0}
-                className="p-1.5 rounded text-[#ebdbb2] hover:bg-[#32302f] disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                title="Undo"
+                className="p-1 rounded text-[#ebdbb2] hover:bg-[#32302f] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                title="Undo (Ctrl+Z)"
               >
-                <Undo2 className="w-4 h-4" />
+                <Undo2 className="w-3.5 h-3.5" />
               </button>
               <button
                 type="button"
                 onClick={handleRedo}
                 disabled={redoStack.length === 0}
-                className="p-1.5 rounded text-[#ebdbb2] hover:bg-[#32302f] disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                title="Redo"
+                className="p-1 rounded text-[#ebdbb2] hover:bg-[#32302f] disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                title="Redo (Ctrl+Y)"
               >
-                <Redo2 className="w-4 h-4" />
+                <Redo2 className="w-3.5 h-3.5" />
               </button>
 
-              <div className="h-4 w-px bg-[#3c3836] mx-1" />
+              <div className="h-3.5 w-px bg-[#3c3836] mx-1" />
 
               <button
                 type="button"
                 onClick={() => setZoomScale((z) => Math.max(0.5, z - 0.15))}
-                className="p-1.5 rounded text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
+                className="p-1 rounded text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
                 title="Zoom Out"
               >
-                <ZoomOut className="w-4 h-4" />
+                <ZoomOut className="w-3.5 h-3.5" />
               </button>
-              <span className="text-xs font-mono text-[#a89984] w-12 text-center">
+              <span className="text-[11px] text-[#a89984] w-12 text-center">
                 {Math.round(zoomScale * 100)}%
               </span>
               <button
                 type="button"
                 onClick={() => setZoomScale((z) => Math.min(2.0, z + 0.15))}
-                className="p-1.5 rounded text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
+                className="p-1 rounded text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
                 title="Zoom In"
               >
-                <ZoomIn className="w-4 h-4" />
+                <ZoomIn className="w-3.5 h-3.5" />
               </button>
 
-              <div className="h-4 w-px bg-[#3c3836] mx-1" />
+              <div className="h-3.5 w-px bg-[#3c3836] mx-1" />
 
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1.5 rounded text-[#a89984] hover:text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
+                className="p-1 rounded text-[#a89984] hover:text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
           </div>
 
           {/* Tools Palette Ribbon */}
-          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-2.5 bg-[#1d2021]/50 border-b border-[#3c3836] text-xs">
-            {/* Tool selectors */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setActiveTool('select')}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer',
-                  activeTool === 'select'
-                    ? 'bg-[#fabd2f] text-[#1d2021] font-semibold'
-                    : 'text-[#ebdbb2] hover:bg-[#32302f]'
-                )}
-              >
-                <Move className="w-3.5 h-3.5" />
-                Select / Move
-              </button>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-[#282828] border-b border-[#3c3836]">
+            {/* Tool selectors with keyboard accelerator labels */}
+            <div className="flex flex-wrap items-center gap-1">
+              {[
+                { id: 'select' as ToolMode, label: 'SELECT [V]', icon: Move },
+                { id: 'pen' as ToolMode, label: 'PEN [P]', icon: PenTool },
+                { id: 'highlighter' as ToolMode, label: 'HIGHLIGHT [H]', icon: Highlighter },
+                { id: 'text' as ToolMode, label: 'TEXT [T]', icon: Type },
+                { id: 'redact' as ToolMode, label: 'REDACT [R]', icon: Square },
+                { id: 'whiteout' as ToolMode, label: 'WHITEOUT', icon: Square },
+              ].map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setActiveTool(t.id)}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded transition-colors cursor-pointer text-[11px]',
+                      activeTool === t.id
+                        ? 'bg-[#fabd2f] text-[#1d2021] font-bold'
+                        : 'text-[#ebdbb2] hover:bg-[#32302f] border border-transparent'
+                    )}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
 
-              <button
-                type="button"
-                onClick={() => setActiveTool('pen')}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer',
-                  activeTool === 'pen'
-                    ? 'bg-[#fabd2f] text-[#1d2021] font-semibold'
-                    : 'text-[#ebdbb2] hover:bg-[#32302f]'
-                )}
-              >
-                <PenTool className="w-3.5 h-3.5" />
-                Pen
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTool('highlighter')}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer',
-                  activeTool === 'highlighter'
-                    ? 'bg-[#fabd2f] text-[#1d2021] font-semibold'
-                    : 'text-[#ebdbb2] hover:bg-[#32302f]'
-                )}
-              >
-                <Highlighter className="w-3.5 h-3.5" />
-                Highlighter
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTool('text')}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer',
-                  activeTool === 'text'
-                    ? 'bg-[#fabd2f] text-[#1d2021] font-semibold'
-                    : 'text-[#ebdbb2] hover:bg-[#32302f]'
-                )}
-              >
-                <Type className="w-3.5 h-3.5" />
-                Add Text
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTool('redact')}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer',
-                  activeTool === 'redact'
-                    ? 'bg-[#fabd2f] text-[#1d2021] font-semibold'
-                    : 'text-[#ebdbb2] hover:bg-[#32302f]'
-                )}
-              >
-                <Square className="w-3.5 h-3.5 fill-current" />
-                Redact (Black)
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTool('whiteout')}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer',
-                  activeTool === 'whiteout'
-                    ? 'bg-[#fabd2f] text-[#1d2021] font-semibold'
-                    : 'text-[#ebdbb2] hover:bg-[#32302f]'
-                )}
-              >
-                <Square className="w-3.5 h-3.5 text-white" />
-                Whiteout
-              </button>
-
-              <div className="h-4 w-px bg-[#3c3836] mx-1" />
+              <div className="h-3.5 w-px bg-[#3c3836] mx-1" />
 
               <button
                 type="button"
                 onClick={() => setIsSignatureModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium text-[#83a598] hover:bg-[#32302f] cursor-pointer border border-[#83a598]/30"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium text-[#83a598] hover:bg-[#32302f] cursor-pointer border border-[#83a598]/30"
               >
                 <FileSignature className="w-3.5 h-3.5" />
-                Sign
+                SIGNATURE [S]
               </button>
 
-              {/* Stamp presets dropdown/buttons */}
               <div className="flex items-center gap-1">
                 {['APPROVED', 'CONFIDENTIAL', 'DRAFT'].map((s) => (
                   <button
                     key={s}
                     type="button"
                     onClick={() => handleAddStamp(s)}
-                    className="px-2 py-1 rounded bg-[#32302f] hover:bg-[#3c3836] text-[10px] font-bold text-[#fb4934] border border-[#fb4934]/30 cursor-pointer"
+                    className="px-2 py-0.5 rounded bg-[#1d2021] hover:bg-[#32302f] text-[10px] font-bold text-[#fb4934] border border-[#fb4934]/30 cursor-pointer"
                   >
                     + {s}
                   </button>
@@ -539,35 +510,35 @@ export function PageEditorModal({
               </div>
             </div>
 
-            {/* Sub-tool options (colors, width, font) */}
+            {/* Sub-tool attributes */}
             <div className="flex items-center gap-3">
               {activeTool === 'pen' && (
                 <div className="flex items-center gap-2">
-                  <span className="text-[#a89984]">Color:</span>
+                  <span className="text-[#928374]">INK:</span>
                   {['#cc241d', '#458588', '#98971a', '#1d2021', '#ebdbb2'].map((c) => (
                     <button
                       key={c}
                       type="button"
                       onClick={() => setPenColor(c)}
                       className={cn(
-                        'w-5 h-5 rounded-full border-2 transition-transform cursor-pointer',
+                        'w-4 h-4 rounded-xs border transition-transform cursor-pointer',
                         penColor === c ? 'scale-120 border-[#fabd2f]' : 'border-transparent'
                       )}
                       style={{ backgroundColor: c }}
                     />
                   ))}
-                  <span className="text-[#a89984] ml-2">Size:</span>
+                  <span className="text-[#928374] ml-1">PX:</span>
                   {[2, 4, 8].map((w) => (
                     <button
                       key={w}
                       type="button"
                       onClick={() => setPenWidth(w)}
                       className={cn(
-                        'px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer',
-                        penWidth === w ? 'bg-[#fabd2f] text-[#1d2021]' : 'bg-[#32302f] text-[#ebdbb2]'
+                        'px-1.5 py-0.2 rounded text-[10px] cursor-pointer',
+                        penWidth === w ? 'bg-[#fabd2f] text-[#1d2021] font-bold' : 'bg-[#1d2021] text-[#ebdbb2]'
                       )}
                     >
-                      {w}px
+                      {w}
                     </button>
                   ))}
                 </div>
@@ -575,14 +546,14 @@ export function PageEditorModal({
 
               {activeTool === 'highlighter' && (
                 <div className="flex items-center gap-2">
-                  <span className="text-[#a89984]">Color:</span>
+                  <span className="text-[#928374]">COLOR:</span>
                   {['#fabd2f', '#b8bb26', '#8ec07c', '#83a598', '#fe8019'].map((c) => (
                     <button
                       key={c}
                       type="button"
                       onClick={() => setHighlightColor(c)}
                       className={cn(
-                        'w-5 h-5 rounded-full border-2 transition-transform cursor-pointer',
+                        'w-4 h-4 rounded-xs border transition-transform cursor-pointer',
                         highlightColor === c ? 'scale-120 border-white' : 'border-transparent'
                       )}
                       style={{ backgroundColor: c }}
@@ -595,10 +566,10 @@ export function PageEditorModal({
                 <button
                   type="button"
                   onClick={handleDeleteSelectedAnn}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#cc241d]/20 text-[#fb4934] border border-[#fb4934]/30 hover:bg-[#cc241d]/40 cursor-pointer"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#cc241d]/20 text-[#fb4934] border border-[#fb4934]/30 hover:bg-[#cc241d]/40 cursor-pointer"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Selected
+                  <Trash2 className="w-3 h-3" />
+                  DELETE ELEMENT
                 </button>
               )}
             </div>
@@ -607,9 +578,9 @@ export function PageEditorModal({
           {/* Main Visual Canvas Area */}
           <div className="flex-1 overflow-auto bg-[#1d2021] flex items-center justify-center p-6 relative">
             {isLoadingPdf ? (
-              <div className="flex flex-col items-center gap-3 text-[#fabd2f]">
-                <div className="w-8 h-8 border-3 border-[#fabd2f] border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs text-[#ebdbb2]">Rendering high resolution page...</span>
+              <div className="flex flex-col items-center gap-2 text-[#fabd2f]">
+                <div className="w-6 h-6 border-2 border-[#fabd2f] border-t-transparent rounded-full animate-spin" />
+                <span className="text-[11px] text-[#ebdbb2]">RENDERING HIGH-DPI CANVAS...</span>
               </div>
             ) : (
               <div
@@ -618,7 +589,7 @@ export function PageEditorModal({
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 className={cn(
-                  'relative shadow-2xl rounded-sm bg-white select-none touch-none',
+                  'relative shadow-2xl rounded-xs bg-white select-none touch-none',
                   activeTool === 'pen' || activeTool === 'highlighter' ? 'cursor-crosshair' : '',
                   activeTool === 'redact' || activeTool === 'whiteout' ? 'cursor-cell' : '',
                   activeTool === 'text' ? 'cursor-text' : '',
@@ -629,7 +600,7 @@ export function PageEditorModal({
                   height: pageDims.height * zoomScale,
                 }}
               >
-                {/* PDF Page Rendered on Background Canvas */}
+                {/* Background PDF Render */}
                 <canvas
                   ref={bgCanvasRef}
                   className="absolute inset-0 w-full h-full pointer-events-none block"
@@ -639,7 +610,7 @@ export function PageEditorModal({
                   }}
                 />
 
-                {/* SVG Layer for Freehand Drawings & Highlighting */}
+                {/* SVG Layer for Freehand & Highlights */}
                 <svg
                   className="absolute inset-0 w-full h-full pointer-events-none"
                   viewBox={`0 0 ${pageDims.width} ${pageDims.height}`}
@@ -666,7 +637,6 @@ export function PageEditorModal({
                       );
                     })}
 
-                  {/* Current Active Freehand Stroke */}
                   {isDrawing && currentDrawPoints.length > 1 && (
                     <path
                       d={currentDrawPoints
@@ -682,11 +652,11 @@ export function PageEditorModal({
                   )}
                 </svg>
 
-                {/* Redaction / Whiteout Preview */}
+                {/* Redaction preview */}
                 {rectPreview && (
                   <div
                     className={cn(
-                      'absolute border-2 border-dashed pointer-events-none',
+                      'absolute border border-dashed pointer-events-none',
                       activeTool === 'whiteout'
                         ? 'bg-white border-[#fabd2f]'
                         : 'bg-black border-[#fb4934]'
@@ -700,7 +670,7 @@ export function PageEditorModal({
                   />
                 )}
 
-                {/* Committed Overlay Annotations (Text, Redaction, Stamps, Signatures) */}
+                {/* Committed Annotations */}
                 {annotations.map((ann) => {
                   if (ann.type === 'redact') {
                     const rAnn = ann as RedactAnnotation;
@@ -713,7 +683,7 @@ export function PageEditorModal({
                         }}
                         className={cn(
                           'absolute cursor-pointer transition-shadow',
-                          selectedAnnId === rAnn.id ? 'ring-2 ring-[#fabd2f]' : ''
+                          selectedAnnId === rAnn.id ? 'ring-1 ring-[#fabd2f]' : ''
                         )}
                         style={{
                           left: rAnn.x * zoomScale,
@@ -744,9 +714,9 @@ export function PageEditorModal({
                           }
                         }}
                         className={cn(
-                          'absolute p-1 rounded transition-shadow',
+                          'absolute p-0.5 rounded-xs transition-shadow',
                           selectedAnnId === tAnn.id
-                            ? 'ring-2 ring-[#fabd2f] bg-[#fabd2f]/10 cursor-move'
+                            ? 'ring-1 ring-[#fabd2f] bg-[#fabd2f]/10 cursor-move'
                             : 'cursor-pointer'
                         )}
                         style={{
@@ -792,9 +762,9 @@ export function PageEditorModal({
                           }
                         }}
                         className={cn(
-                          'absolute border-2 rounded flex items-center justify-center font-bold tracking-wider select-none',
+                          'absolute border-2 rounded-xs flex items-center justify-center font-bold tracking-wider select-none',
                           selectedAnnId === sAnn.id
-                            ? 'ring-2 ring-[#fabd2f] cursor-move'
+                            ? 'ring-1 ring-[#fabd2f] cursor-move'
                             : 'cursor-pointer'
                         )}
                         style={{
@@ -833,7 +803,7 @@ export function PageEditorModal({
                         className={cn(
                           'absolute select-none',
                           selectedAnnId === iAnn.id
-                            ? 'ring-2 ring-[#fabd2f] cursor-move'
+                            ? 'ring-1 ring-[#fabd2f] cursor-move'
                             : 'cursor-pointer'
                         )}
                         style={{
@@ -845,7 +815,7 @@ export function PageEditorModal({
                       >
                         <img
                           src={iAnn.dataUrl}
-                          alt="Signature / Image"
+                          alt="Signature / Stamp"
                           className="w-full h-full object-contain pointer-events-none"
                         />
                       </div>
@@ -858,27 +828,38 @@ export function PageEditorModal({
             )}
           </div>
 
-          {/* Bottom Dialog Action Footer */}
-          <div className="flex items-center justify-between px-5 py-3 border-t border-[#3c3836] bg-[#1d2021]/80">
-            <div className="text-xs text-[#a89984]">
-              {annotations.length} {annotations.length === 1 ? 'annotation' : 'annotations'} on this page
+          {/* Bottom Telemetry & Commit Footer */}
+          <div className="flex items-center justify-between px-4 py-2 border-t border-[#3c3836] bg-[#1d2021]">
+            {/* Coordinate & Canvas Telemetry */}
+            <div className="flex items-center gap-3 text-[11px] text-[#928374]">
+              <span>
+                X: <strong className="text-[#ebdbb2]">{cursorCoords.x}</strong> Y: <strong className="text-[#ebdbb2]">{cursorCoords.y}</strong> pt
+              </span>
+              <span className="text-[#3c3836]">•</span>
+              <span>
+                DIMENSIONS: {Math.round(pageDims.width)} × {Math.round(pageDims.height)} pt
+              </span>
+              <span className="text-[#3c3836]">•</span>
+              <span>
+                {annotations.length} LAYER{annotations.length === 1 ? '' : 'S'}
+              </span>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg text-xs font-medium text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
+                className="px-3 py-1 rounded text-xs text-[#ebdbb2] hover:bg-[#282828] cursor-pointer"
               >
-                Cancel
+                CANCEL
               </button>
               <button
                 type="button"
                 onClick={handleSave}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-lg text-xs font-semibold bg-[#fabd2f] text-[#1d2021] hover:bg-[#fabd2f]/90 cursor-pointer shadow-md transition-all"
+                className="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-bold bg-[#fabd2f] text-[#1d2021] hover:bg-[#fabd2f]/90 cursor-pointer transition-all"
               >
-                <Check className="w-4 h-4 stroke-[2.5]" />
-                Apply to Page
+                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                APPLY CHANGES
               </button>
             </div>
           </div>

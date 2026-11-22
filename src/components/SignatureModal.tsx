@@ -65,7 +65,7 @@ export function SignatureModal({ isOpen, onClose, onSave }: SignatureModalProps)
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
@@ -111,52 +111,54 @@ export function SignatureModal({ isOpen, onClose, onSave }: SignatureModalProps)
     <dialog
       ref={dialogRef}
       aria-labelledby="sig-title"
-      className="fixed inset-0 m-auto p-0 bg-transparent text-[#ebdbb2] border-0 backdrop:bg-[#1d2021]/80 backdrop:backdrop-blur-sm z-50 max-w-lg w-full"
+      className="fixed inset-0 m-auto p-0 bg-transparent text-[#ebdbb2] border-0 backdrop:bg-[#1d2021]/80 backdrop:backdrop-blur-sm z-50 max-w-md w-full font-mono text-xs"
       onClose={onClose}
     >
-      <div className="bg-[#282828] border border-[#504945] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="bg-[#282828] border border-[#504945] rounded shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#3c3836]">
-          <h3 id="sig-title" className="font-bold text-[#fbf1c7] text-base">
-            Draw Your Signature
-          </h3>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#3c3836] bg-[#1d2021]">
+          <span id="sig-title" className="font-bold text-[#fbf1c7] text-xs">
+            DIGITAL SIGNATURE PAD
+          </span>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-md text-[#a89984] hover:text-[#ebdbb2] hover:bg-[#3c3836] cursor-pointer"
+            className="p-1 rounded text-[#a89984] hover:text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-5 flex flex-col items-center">
+        <div className="p-4 flex flex-col items-center">
           {/* Canvas */}
-          <div className="w-full bg-[#fbf1c7] rounded-xl border-2 border-dashed border-[#7c6f64] overflow-hidden shadow-inner touch-none relative">
+          <div className="w-full bg-[#fbf1c7] rounded-xs border border-[#504945] overflow-hidden shadow-inner touch-none relative">
             <canvas
               ref={canvasRef}
               width={500}
-              height={200}
+              height={180}
               onPointerDown={startDrawing}
               onPointerMove={draw}
               onPointerUp={stopDrawing}
               onPointerCancel={stopDrawing}
-              className="w-full h-48 cursor-crosshair block"
+              className="w-full h-44 cursor-crosshair block"
             />
+            {/* Guide baseline */}
+            <div className="absolute left-6 right-6 bottom-10 border-b border-[#7c6f64]/40 pointer-events-none" />
             {!hasDrawn && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-[#7c6f64] text-xs font-medium">
-                Sign with your mouse, pen, or finger here
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-[#7c6f64] text-[11px]">
+                Sign with mouse, stylus, or touch above the line
               </div>
             )}
           </div>
 
-          {/* Color choices & clear */}
-          <div className="flex items-center justify-between w-full mt-4">
+          {/* Color & clear */}
+          <div className="flex items-center justify-between w-full mt-3">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[#a89984]">Ink:</span>
+              <span className="text-[11px] text-[#928374]">INK:</span>
               {[
                 { label: 'Black', color: '#1d2021' },
-                { label: 'Navy Blue', color: '#0f3460' },
+                { label: 'Navy', color: '#0f3460' },
                 { label: 'Red', color: '#cc241d' },
               ].map((c) => (
                 <button
@@ -164,8 +166,8 @@ export function SignatureModal({ isOpen, onClose, onSave }: SignatureModalProps)
                   type="button"
                   onClick={() => setStrokeColor(c.color)}
                   className={cn(
-                    'w-6 h-6 rounded-full border-2 transition-transform cursor-pointer',
-                    strokeColor === c.color ? 'scale-115 border-[#fabd2f]' : 'border-transparent'
+                    'w-4 h-4 rounded-xs border transition-transform cursor-pointer',
+                    strokeColor === c.color ? 'scale-120 border-[#fabd2f]' : 'border-transparent'
                   )}
                   style={{ backgroundColor: c.color }}
                   title={c.label}
@@ -176,34 +178,34 @@ export function SignatureModal({ isOpen, onClose, onSave }: SignatureModalProps)
             <button
               type="button"
               onClick={clearCanvas}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#ebdbb2] bg-[#32302f] hover:bg-[#3c3836] border border-[#504945] cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] text-[#ebdbb2] bg-[#1d2021] hover:bg-[#32302f] border border-[#3c3836] cursor-pointer"
             >
-              <RotateCcw className="w-3.5 h-3.5 text-[#fb4934]" />
-              Clear
+              <RotateCcw className="w-3 h-3 text-[#fb4934]" />
+              CLEAR
             </button>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-[#3c3836] bg-[#1d2021]/50">
+        <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-[#3c3836] bg-[#1d2021]">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-lg text-xs font-medium text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
+            className="px-3 py-1 rounded text-xs text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
           >
-            Cancel
+            CANCEL
           </button>
           <button
             type="button"
             disabled={!hasDrawn}
             onClick={handleSave}
             className={cn(
-              'flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-[#fabd2f] text-[#1d2021] hover:bg-[#fabd2f]/90 cursor-pointer transition-all',
+              'flex items-center gap-1.5 px-3 py-1 rounded text-xs font-bold bg-[#fabd2f] text-[#1d2021] hover:bg-[#fabd2f]/90 cursor-pointer transition-all',
               !hasDrawn && 'opacity-40 cursor-not-allowed'
             )}
           >
-            <Check className="w-4 h-4 stroke-[2.5]" />
-            Insert Signature
+            <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+            INSERT
           </button>
         </div>
       </div>

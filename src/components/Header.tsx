@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { FileText, ShieldCheck, Zap, RefreshCw } from 'lucide-react';
+import { FileText, Shield, HardDrive, RefreshCw, Layers } from 'lucide-react';
 
 interface HeaderProps {
   pageCount: number;
@@ -11,42 +11,43 @@ interface HeaderProps {
 
 export function Header({ pageCount, docCount, onReset }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-30 w-full border-b border-[#3c3836] bg-[#1d2021]/95 backdrop-blur-md px-4 sm:px-6 py-3">
-      <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
-        {/* Brand */}
+    <header className="sticky top-0 z-30 w-full border-b border-[#3c3836] bg-[#1d2021]/95 backdrop-blur-md px-4 sm:px-6 py-2.5">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+        {/* Brand identity matching Azterisk ecosystem */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-[#fabd2f]/15 border border-[#fabd2f]/30 text-[#fabd2f]">
-            <FileText className="w-5 h-5" />
+          <div className="w-8 h-8 rounded-md bg-[#282828] border border-[#504945] flex items-center justify-center text-[#fabd2f]">
+            <FileText className="w-4 h-4" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-bold text-lg text-[#fbf1c7] tracking-tight">
-                Azterisk <span className="text-[#fabd2f]">PDF</span>
-              </h1>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-[#3c3836] text-[#bdae93] font-mono border border-[#504945]">
-                pdf.azterisk.net
+              <span className="font-mono font-bold text-sm text-[#fbf1c7] tracking-tight">
+                pdf<span className="text-[#fabd2f]">.azterisk.net</span>
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#282828] text-[#928374] border border-[#3c3836]">
+                v1.0
               </span>
             </div>
-            <p className="text-xs text-[#a89984] hidden sm:block">
-              Merge, Split, Reorder & Edit PDFs — All In One Workflow
-            </p>
+            <div className="text-[11px] font-mono text-[#a89984] hidden sm:block">
+              Client-Side PDF Workstation
+            </div>
           </div>
         </div>
 
-        {/* Status badges & Actions */}
-        <div className="flex items-center gap-2 sm:gap-4">
-          <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#282828] border border-[#3c3836] text-xs text-[#8ec07c]">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#8ec07c]" />
-            <span>100% Client-Side • Private & Free</span>
+        {/* Telemetry & Utilities */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Security & Isolation Pill */}
+          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#282828] border border-[#3c3836] text-[11px] font-mono text-[#8ec07c]">
+            <Shield className="w-3 h-3 text-[#8ec07c]" />
+            <span>SANDBOXED / ZERO NETWORK EGRESS</span>
           </div>
 
           {pageCount > 0 && (
-            <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-[#282828] border border-[#3c3836] text-xs text-[#d5c4a1]">
-              <span className="text-[#fabd2f] font-semibold">{pageCount}</span>{' '}
-              {pageCount === 1 ? 'page' : 'pages'}
-              <span className="text-[#665c54]">•</span>
-              <span className="text-[#83a598] font-semibold">{docCount}</span>{' '}
-              {docCount === 1 ? 'doc' : 'docs'}
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded bg-[#282828] border border-[#3c3836] text-[11px] font-mono text-[#ebdbb2]">
+              <span className="text-[#fabd2f] font-semibold">{pageCount}</span>
+              <span className="text-[#7c6f64]">{pageCount === 1 ? 'PAGE' : 'PAGES'}</span>
+              <span className="text-[#504945]">/</span>
+              <span className="text-[#83a598] font-semibold">{docCount}</span>
+              <span className="text-[#7c6f64]">{docCount === 1 ? 'DOC' : 'DOCS'}</span>
             </div>
           )}
 
@@ -54,11 +55,11 @@ export function Header({ pageCount, docCount, onReset }: HeaderProps) {
             <button
               type="button"
               onClick={onReset}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#ebdbb2] bg-[#32302f] hover:bg-[#3c3836] border border-[#504945] transition-colors cursor-pointer"
-              title="Clear workspace and start fresh"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono text-[#ebdbb2] bg-[#282828] hover:bg-[#32302f] hover:border-[#665c54] border border-[#3c3836] transition-colors cursor-pointer"
+              title="Clear active workspace"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-[#fb4934]" />
-              <span className="hidden sm:inline">New Session</span>
+              <RefreshCw className="w-3 h-3 text-[#fb4934]" />
+              <span className="hidden sm:inline">RESET</span>
             </button>
           )}
         </div>
