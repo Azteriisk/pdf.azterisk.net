@@ -17,7 +17,9 @@ export const metadata: Metadata = {
   description:
     'Free, private, 100% client-side PDF workflow. Merge multiple files, split pages, reorder visually, remove pages, annotate, sign, and edit PDFs without signup or fees.',
   icons: {
-    icon: '/favicon.ico',
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
   },
 };
 

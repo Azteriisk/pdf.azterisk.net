@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { Dropzone } from '@/components/Dropzone';
 import { WorkspaceToolbar } from '@/components/WorkspaceToolbar';
@@ -26,7 +26,7 @@ import {
   downloadBlob,
 } from '@/lib/utils';
 import JSZip from 'jszip';
-import { Check, Info } from 'lucide-react';
+import { UploadCloud, CheckCircle2 } from 'lucide-react';
 
 export default function Home() {
   const [sourceDocs, setSourceDocs] = useState<Map<string, SourceDocument>>(new Map());
@@ -36,6 +36,10 @@ export default function Home() {
   const [docName, setDocName] = useState('merged_document.pdf');
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  // Global window drag over state
+  const [isWindowDragOver, setIsWindowDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
 
   // Modals
   const [editingPage, setEditingPage] = useState<WorkspacePage | null>(null);
@@ -63,7 +67,7 @@ export default function Home() {
   }, []);
 
   // Process incoming PDF files
-  const handleFilesSelected = async (files: File[]) => {
+  const handleFilesSelected = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
     setIsLoadingFiles(true);
 
@@ -127,7 +131,62 @@ export default function Home() {
     } finally {
       setIsLoadingFiles(false);
     }
-  };
+  }, [sourceDocs, pages.length, showStatus]);
+
+  // Window-level drag & drop listener to allow dropping files ANYWHERE at any time
+  useEffect(() => {
+    const handleDragEnter = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        dragCounterRef.current++;
+        setIsWindowDragOver(true);
+      }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        dragCounterRef.current--;
+        if (dragCounterRef.current <= 0) {
+          dragCounterRef.current = 0;
+          setIsWindowDragOver(false);
+        }
+      }
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        e.preventDefault();
+        dragCounterRef.current = 0;
+        setIsWindowDragOver(false);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          const pdfs = Array.from(e.dataTransfer.files).filter(
+            (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
+          );
+          if (pdfs.length > 0) {
+            handleFilesSelected(pdfs);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [handleFilesSelected]);
 
   // Toggle selection with Shift-click range support
   const handleToggleSelect = (pageId: string, e: React.MouseEvent) => {
@@ -371,7 +430,7 @@ export default function Home() {
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
-      if (editingPage) return; // let editor modal handle its own keys
+      if (editingPage) return;
 
       if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault();
@@ -403,7 +462,7 @@ export default function Home() {
   ]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#1d2021] text-[#ebdbb2]">
+    <div className="min-h-screen flex flex-col bg-[#1d2021] text-[#ebdbb2] relative">
       {/* Header */}
       <Header
         pageCount={pages.length}
@@ -455,11 +514,28 @@ export default function Home() {
                 onDuplicate={handleDuplicatePage}
                 onEdit={(p) => setEditingPage(p)}
                 onReorder={handleReorder}
+                onFilesSelected={handleFilesSelected}
+                isLoadingFiles={isLoadingFiles}
               />
             </div>
           </>
         )}
       </main>
+
+      {/* Full-Window External Drag & Drop Overlay */}
+      {isWindowDragOver && (
+        <div className="fixed inset-0 z-50 bg-[#1d2021]/90 backdrop-blur-xs border-2 border-dashed border-[#fabd2f] m-3 rounded-lg flex flex-col items-center justify-center pointer-events-none">
+          <div className="w-14 h-14 rounded-md bg-[#282828] border border-[#fabd2f] flex items-center justify-center text-[#fabd2f] mb-3 shadow-2xl">
+            <UploadCloud className="w-7 h-7" />
+          </div>
+          <div className="font-mono font-bold text-sm text-[#fbf1c7]">
+            DROP PDF FILES TO APPEND TO WORKSPACE
+          </div>
+          <div className="font-mono text-[11px] text-[#928374] mt-1">
+            New pages will be inserted into active session
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       <PageEditorModal
@@ -490,7 +566,7 @@ export default function Home() {
 
       {/* Telemetry Status Notification */}
       {statusLog && (
-        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3 py-2 rounded bg-[#282828] text-[#fbf1c7] border border-[#504945] shadow-xl text-[11px] font-mono">
+        <div className="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-3 py-2 rounded bg-[#282828] text-[#fbf1c7] border border-[#504945] shadow-xl text-[11px] font-mono">
           <span className="w-1.5 h-1.5 rounded-full bg-[#b8bb26] animate-pulse" />
           <span>{statusLog}</span>
         </div>

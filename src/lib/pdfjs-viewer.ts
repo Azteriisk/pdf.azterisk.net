@@ -23,7 +23,6 @@ export async function getDocumentInfo(arrayBuffer: ArrayBuffer): Promise<{
   const pdfjs = await getPdfjs();
   if (!pdfjs) throw new Error('PDF.js not available');
 
-  // Copy arrayBuffer so PDF.js doesn't detach the original
   const bufferCopy = arrayBuffer.slice(0);
   const loadingTask = pdfjs.getDocument({ data: bufferCopy });
   const doc = await loadingTask.promise;
@@ -53,7 +52,6 @@ export async function renderThumbnail(
   const doc = await loadingTask.promise;
   const page = await doc.getPage(pageIndex + 1);
 
-  // Unrotated viewport to get aspect ratio
   const unscaledViewport = page.getViewport({ scale: 1, rotation });
   const scale = targetWidth / unscaledViewport.width;
   const viewport = page.getViewport({ scale, rotation });
@@ -65,7 +63,6 @@ export async function renderThumbnail(
   const context = canvas.getContext('2d', { alpha: false });
   if (!context) throw new Error('Could not get 2d context');
 
-  // Fill white background first
   context.fillStyle = '#ffffff';
   context.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -74,9 +71,8 @@ export async function renderThumbnail(
     viewport: viewport,
   }).promise;
 
-  const url = canvas.toDataURL('image/jpeg', 0.82);
+  const url = canvas.toDataURL('image/jpeg', 0.85);
 
-  // Clean up
   canvas.width = 0;
   canvas.height = 0;
 
@@ -91,8 +87,8 @@ export async function renderPageHighRes(
   arrayBuffer: ArrayBuffer,
   pageIndex: number, // 0-based
   rotation: number = 0,
-  scale: number = 1.5
-): Promise<{ canvas: HTMLCanvasElement; width: number; height: number }> {
+  scale: number = 1.8
+): Promise<{ url: string; width: number; height: number }> {
   const pdfjs = await getPdfjs();
   if (!pdfjs) throw new Error('PDF.js not available');
 
@@ -101,13 +97,14 @@ export async function renderPageHighRes(
   const doc = await loadingTask.promise;
   const page = await doc.getPage(pageIndex + 1);
 
+  const unscaledViewport = page.getViewport({ scale: 1, rotation });
   const viewport = page.getViewport({ scale, rotation });
 
   const canvas = document.createElement('canvas');
   canvas.width = Math.floor(viewport.width);
   canvas.height = Math.floor(viewport.height);
 
-  const context = canvas.getContext('2d');
+  const context = canvas.getContext('2d', { alpha: false });
   if (!context) throw new Error('Could not get 2d context');
 
   context.fillStyle = '#ffffff';
@@ -118,9 +115,14 @@ export async function renderPageHighRes(
     viewport: viewport,
   }).promise;
 
+  const url = canvas.toDataURL('image/jpeg', 0.94);
+
+  canvas.width = 0;
+  canvas.height = 0;
+
   return {
-    canvas,
-    width: viewport.width,
-    height: viewport.height,
+    url,
+    width: unscaledViewport.width,
+    height: unscaledViewport.height,
   };
 }

@@ -14,9 +14,9 @@ import {
   FileSignature,
   ZoomIn,
   ZoomOut,
-  Maximize2,
   Move,
-  Layers,
+  RotateCw,
+  Loader2,
 } from 'lucide-react';
 import {
   WorkspacePage,
@@ -51,7 +51,6 @@ export function PageEditorModal({
 }: PageEditorModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const bgCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Tools & State
   const [activeTool, setActiveTool] = useState<ToolMode>('pen');
@@ -65,6 +64,9 @@ export function PageEditorModal({
 
   // Zoom
   const [zoomScale, setZoomScale] = useState(1);
+
+  // Page background bitmap
+  const [pageImageUrl, setPageImageUrl] = useState<string | null>(null);
 
   // Annotations
   const [annotations, setAnnotations] = useState<PageAnnotation[]>([]);
@@ -89,57 +91,52 @@ export function PageEditorModal({
   const [pageDims, setPageDims] = useState<{ width: number; height: number }>({ width: 600, height: 800 });
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
 
-  // Initialize dialog
+  // Initialize dialog and load high-res rendering
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
 
-    if (isOpen) {
+    if (isOpen && page) {
       if (!dialog.open) {
         dialog.showModal();
       }
-      if (page) {
-        setAnnotations(page.annotations ? JSON.parse(JSON.stringify(page.annotations)) : []);
-        setUndoStack([]);
-        setRedoStack([]);
-        setSelectedAnnId(null);
-        loadPagePreview();
+
+      setAnnotations(page.annotations ? JSON.parse(JSON.stringify(page.annotations)) : []);
+      setUndoStack([]);
+      setRedoStack([]);
+      setSelectedAnnId(null);
+      setPageDims({
+        width: page.originalWidth || 595,
+        height: page.originalHeight || 842,
+      });
+
+      // Show immediate thumbnail preview so canvas is NEVER blank
+      if (page.thumbnailUrl) {
+        setPageImageUrl(page.thumbnailUrl);
+      }
+
+      // Render high-res version in parallel
+      if (pdfArrayBuffer) {
+        setIsLoadingPdf(true);
+        renderPageHighRes(pdfArrayBuffer, page.sourcePageIndex, page.rotation, 1.8)
+          .then(({ url, width, height }) => {
+            setPageImageUrl(url);
+            setPageDims({ width, height });
+          })
+          .catch((err) => {
+            console.error('Failed to render high-res page:', err);
+          })
+          .finally(() => {
+            setIsLoadingPdf(false);
+          });
       }
     } else {
       if (dialog.open) {
         dialog.close();
       }
+      setPageImageUrl(null);
     }
-  }, [isOpen, page]);
-
-  const loadPagePreview = async () => {
-    if (!page || !pdfArrayBuffer) return;
-    setIsLoadingPdf(true);
-    try {
-      const { canvas, width, height } = await renderPageHighRes(
-        pdfArrayBuffer,
-        page.sourcePageIndex,
-        page.rotation,
-        1.5
-      );
-
-      setPageDims({ width, height });
-
-      const bgCanvas = bgCanvasRef.current;
-      if (bgCanvas) {
-        bgCanvas.width = width;
-        bgCanvas.height = height;
-        const ctx = bgCanvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(canvas, 0, 0);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to render page preview:', err);
-    } finally {
-      setIsLoadingPdf(false);
-    }
-  };
+  }, [isOpen, page, pdfArrayBuffer]);
 
   const pushStateToUndo = useCallback((newAnns: PageAnnotation[]) => {
     setUndoStack((prev) => [...prev, annotations]);
@@ -176,7 +173,6 @@ export function PageEditorModal({
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is typing inside an input
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
 
       if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
@@ -208,7 +204,6 @@ export function PageEditorModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, handleUndo, handleRedo, handleDeleteSelectedAnn]);
 
-  // Convert client coordinate into canvas page coordinate
   const getCanvasCoords = (e: React.PointerEvent<HTMLDivElement>) => {
     const container = containerRef.current;
     if (!container) return { x: 0, y: 0 };
@@ -397,6 +392,12 @@ export function PageEditorModal({
                   ({page.sourceDocName})
                 </span>
               </span>
+              {isLoadingPdf && (
+                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#32302f] border border-[#504945] text-[10px] text-[#fabd2f]">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>HQ RENDERING...</span>
+                </span>
+              )}
             </div>
 
             {/* Undo / Redo & Zoom */}
@@ -424,7 +425,7 @@ export function PageEditorModal({
 
               <button
                 type="button"
-                onClick={() => setZoomScale((z) => Math.max(0.5, z - 0.15))}
+                onClick={() => setZoomScale((z) => Math.max(0.4, Number((z - 0.15).toFixed(2))))}
                 className="p-1 rounded text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
                 title="Zoom Out"
               >
@@ -435,11 +436,19 @@ export function PageEditorModal({
               </span>
               <button
                 type="button"
-                onClick={() => setZoomScale((z) => Math.min(2.0, z + 0.15))}
+                onClick={() => setZoomScale((z) => Math.min(2.5, Number((z + 0.15).toFixed(2))))}
                 className="p-1 rounded text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
                 title="Zoom In"
               >
                 <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoomScale(1)}
+                className="px-1.5 py-0.5 rounded text-[10px] text-[#928374] hover:text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
+                title="Reset Zoom to 100%"
+              >
+                1:1
               </button>
 
               <div className="h-3.5 w-px bg-[#3c3836] mx-1" />
@@ -577,267 +586,267 @@ export function PageEditorModal({
 
           {/* Main Visual Canvas Area */}
           <div className="flex-1 overflow-auto bg-[#1d2021] flex items-center justify-center p-6 relative">
-            {isLoadingPdf ? (
-              <div className="flex flex-col items-center gap-2 text-[#fabd2f]">
-                <div className="w-6 h-6 border-2 border-[#fabd2f] border-t-transparent rounded-full animate-spin" />
-                <span className="text-[11px] text-[#ebdbb2]">RENDERING HIGH-DPI CANVAS...</span>
-              </div>
-            ) : (
-              <div
-                ref={containerRef}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                className={cn(
-                  'relative shadow-2xl rounded-xs bg-white select-none touch-none',
-                  activeTool === 'pen' || activeTool === 'highlighter' ? 'cursor-crosshair' : '',
-                  activeTool === 'redact' || activeTool === 'whiteout' ? 'cursor-cell' : '',
-                  activeTool === 'text' ? 'cursor-text' : '',
-                  activeTool === 'select' ? 'cursor-default' : ''
-                )}
-                style={{
-                  width: pageDims.width * zoomScale,
-                  height: pageDims.height * zoomScale,
-                }}
-              >
-                {/* Background PDF Render */}
-                <canvas
-                  ref={bgCanvasRef}
-                  className="absolute inset-0 w-full h-full pointer-events-none block"
+            <div
+              ref={containerRef}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              className={cn(
+                'relative shadow-2xl rounded-xs bg-white select-none touch-none',
+                activeTool === 'pen' || activeTool === 'highlighter' ? 'cursor-crosshair' : '',
+                activeTool === 'redact' || activeTool === 'whiteout' ? 'cursor-cell' : '',
+                activeTool === 'text' ? 'cursor-text' : '',
+                activeTool === 'select' ? 'cursor-default' : ''
+              )}
+              style={{
+                width: pageDims.width * zoomScale,
+                height: pageDims.height * zoomScale,
+              }}
+            >
+              {/* PDF Page Background Image (Reliable, never blank, crisp rendering) */}
+              {pageImageUrl ? (
+                <img
+                  src={pageImageUrl}
+                  alt={`Page ${page.sourcePageIndex + 1}`}
+                  draggable={false}
+                  className="absolute inset-0 w-full h-full pointer-events-none select-none object-contain block"
                   style={{
                     width: pageDims.width * zoomScale,
                     height: pageDims.height * zoomScale,
                   }}
                 />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center bg-[#282828] text-[#7c6f64] text-xs font-mono">
+                  LOADING PAGE DATA...
+                </div>
+              )}
 
-                {/* SVG Layer for Freehand & Highlights */}
-                <svg
-                  className="absolute inset-0 w-full h-full pointer-events-none"
-                  viewBox={`0 0 ${pageDims.width} ${pageDims.height}`}
-                >
-                  {annotations
-                    .filter((a) => a.type === 'draw')
-                    .map((ann) => {
-                      const dAnn = ann as DrawAnnotation;
-                      if (!dAnn.points || dAnn.points.length < 2) return null;
-                      const pathStr = dAnn.points
-                        .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
-                        .join(' ');
-                      return (
-                        <path
-                          key={dAnn.id}
-                          d={pathStr}
-                          stroke={dAnn.color}
-                          strokeWidth={dAnn.strokeWidth}
-                          strokeOpacity={dAnn.opacity ?? 1}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          fill="none"
-                        />
-                      );
-                    })}
-
-                  {isDrawing && currentDrawPoints.length > 1 && (
-                    <path
-                      d={currentDrawPoints
-                        .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
-                        .join(' ')}
-                      stroke={activeTool === 'pen' ? penColor : highlightColor}
-                      strokeWidth={activeTool === 'pen' ? penWidth : highlightWidth}
-                      strokeOpacity={activeTool === 'pen' ? 1 : 0.35}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      fill="none"
-                    />
-                  )}
-                </svg>
-
-                {/* Redaction preview */}
-                {rectPreview && (
-                  <div
-                    className={cn(
-                      'absolute border border-dashed pointer-events-none',
-                      activeTool === 'whiteout'
-                        ? 'bg-white border-[#fabd2f]'
-                        : 'bg-black border-[#fb4934]'
-                    )}
-                    style={{
-                      left: rectPreview.x * zoomScale,
-                      top: rectPreview.y * zoomScale,
-                      width: rectPreview.w * zoomScale,
-                      height: rectPreview.h * zoomScale,
-                    }}
-                  />
-                )}
-
-                {/* Committed Annotations */}
-                {annotations.map((ann) => {
-                  if (ann.type === 'redact') {
-                    const rAnn = ann as RedactAnnotation;
+              {/* SVG Layer for Freehand & Highlights */}
+              <svg
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                viewBox={`0 0 ${pageDims.width} ${pageDims.height}`}
+              >
+                {annotations
+                  .filter((a) => a.type === 'draw')
+                  .map((ann) => {
+                    const dAnn = ann as DrawAnnotation;
+                    if (!dAnn.points || dAnn.points.length < 2) return null;
+                    const pathStr = dAnn.points
+                      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
+                      .join(' ');
                     return (
-                      <div
-                        key={rAnn.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedAnnId(rAnn.id);
-                        }}
-                        className={cn(
-                          'absolute cursor-pointer transition-shadow',
-                          selectedAnnId === rAnn.id ? 'ring-1 ring-[#fabd2f]' : ''
-                        )}
-                        style={{
-                          left: rAnn.x * zoomScale,
-                          top: rAnn.y * zoomScale,
-                          width: rAnn.width * zoomScale,
-                          height: rAnn.height * zoomScale,
-                          backgroundColor: rAnn.color,
-                        }}
+                      <path
+                        key={dAnn.id}
+                        d={pathStr}
+                        stroke={dAnn.color}
+                        strokeWidth={dAnn.strokeWidth}
+                        strokeOpacity={dAnn.opacity ?? 1}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        fill="none"
                       />
                     );
-                  }
+                  })}
 
-                  if (ann.type === 'text') {
-                    const tAnn = ann as TextAnnotation;
-                    return (
-                      <div
-                        key={tAnn.id}
-                        onPointerDown={(e) => {
-                          if (activeTool === 'select') {
-                            e.stopPropagation();
-                            setSelectedAnnId(tAnn.id);
-                            const coords = getCanvasCoords(e);
-                            setDraggingAnn({
-                              id: tAnn.id,
-                              offsetX: coords.x - tAnn.x,
-                              offsetY: coords.y - tAnn.y,
-                            });
-                          }
+                {isDrawing && currentDrawPoints.length > 1 && (
+                  <path
+                    d={currentDrawPoints
+                      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
+                      .join(' ')}
+                    stroke={activeTool === 'pen' ? penColor : highlightColor}
+                    strokeWidth={activeTool === 'pen' ? penWidth : highlightWidth}
+                    strokeOpacity={activeTool === 'pen' ? 1 : 0.35}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                  />
+                )}
+              </svg>
+
+              {/* Redaction preview */}
+              {rectPreview && (
+                <div
+                  className={cn(
+                    'absolute border border-dashed pointer-events-none',
+                    activeTool === 'whiteout'
+                      ? 'bg-white border-[#fabd2f]'
+                      : 'bg-black border-[#fb4934]'
+                  )}
+                  style={{
+                    left: rectPreview.x * zoomScale,
+                    top: rectPreview.y * zoomScale,
+                    width: rectPreview.w * zoomScale,
+                    height: rectPreview.h * zoomScale,
+                  }}
+                />
+              )}
+
+              {/* Committed Annotations */}
+              {annotations.map((ann) => {
+                if (ann.type === 'redact') {
+                  const rAnn = ann as RedactAnnotation;
+                  return (
+                    <div
+                      key={rAnn.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedAnnId(rAnn.id);
+                      }}
+                      className={cn(
+                        'absolute cursor-pointer transition-shadow',
+                        selectedAnnId === rAnn.id ? 'ring-1 ring-[#fabd2f]' : ''
+                      )}
+                      style={{
+                        left: rAnn.x * zoomScale,
+                        top: rAnn.y * zoomScale,
+                        width: rAnn.width * zoomScale,
+                        height: rAnn.height * zoomScale,
+                        backgroundColor: rAnn.color,
+                      }}
+                    />
+                  );
+                }
+
+                if (ann.type === 'text') {
+                  const tAnn = ann as TextAnnotation;
+                  return (
+                    <div
+                      key={tAnn.id}
+                      onPointerDown={(e) => {
+                        if (activeTool === 'select') {
+                          e.stopPropagation();
+                          setSelectedAnnId(tAnn.id);
+                          const coords = getCanvasCoords(e);
+                          setDraggingAnn({
+                            id: tAnn.id,
+                            offsetX: coords.x - tAnn.x,
+                            offsetY: coords.y - tAnn.y,
+                          });
+                        }
+                      }}
+                      className={cn(
+                        'absolute p-0.5 rounded-xs transition-shadow',
+                        selectedAnnId === tAnn.id
+                          ? 'ring-1 ring-[#fabd2f] bg-[#fabd2f]/10 cursor-move'
+                          : 'cursor-pointer'
+                      )}
+                      style={{
+                        left: tAnn.x * zoomScale,
+                        top: tAnn.y * zoomScale,
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={tAnn.text}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setAnnotations((prev) =>
+                            prev.map((a) => (a.id === tAnn.id ? { ...a, text: val } : a))
+                          );
                         }}
-                        className={cn(
-                          'absolute p-0.5 rounded-xs transition-shadow',
-                          selectedAnnId === tAnn.id
-                            ? 'ring-1 ring-[#fabd2f] bg-[#fabd2f]/10 cursor-move'
-                            : 'cursor-pointer'
-                        )}
+                        className="bg-transparent border-none outline-none font-sans"
                         style={{
-                          left: tAnn.x * zoomScale,
-                          top: tAnn.y * zoomScale,
+                          fontSize: tAnn.size * zoomScale,
+                          color: tAnn.color,
+                          fontWeight: tAnn.isBold ? 'bold' : 'normal',
                         }}
-                      >
-                        <input
-                          type="text"
-                          value={tAnn.text}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setAnnotations((prev) =>
-                              prev.map((a) => (a.id === tAnn.id ? { ...a, text: val } : a))
-                            );
-                          }}
-                          className="bg-transparent border-none outline-none font-sans"
-                          style={{
-                            fontSize: tAnn.size * zoomScale,
-                            color: tAnn.color,
-                            fontWeight: tAnn.isBold ? 'bold' : 'normal',
-                          }}
-                        />
-                      </div>
-                    );
-                  }
+                      />
+                    </div>
+                  );
+                }
 
-                  if (ann.type === 'stamp') {
-                    const sAnn = ann as StampAnnotation;
-                    return (
-                      <div
-                        key={sAnn.id}
-                        onPointerDown={(e) => {
-                          if (activeTool === 'select') {
-                            e.stopPropagation();
-                            setSelectedAnnId(sAnn.id);
-                            const coords = getCanvasCoords(e);
-                            setDraggingAnn({
-                              id: sAnn.id,
-                              offsetX: coords.x - sAnn.x,
-                              offsetY: coords.y - sAnn.y,
-                            });
-                          }
-                        }}
-                        className={cn(
-                          'absolute border-2 rounded-xs flex items-center justify-center font-bold tracking-wider select-none',
-                          selectedAnnId === sAnn.id
-                            ? 'ring-1 ring-[#fabd2f] cursor-move'
-                            : 'cursor-pointer'
-                        )}
-                        style={{
-                          left: sAnn.x * zoomScale,
-                          top: sAnn.y * zoomScale,
-                          width: sAnn.width * zoomScale,
-                          height: sAnn.height * zoomScale,
-                          borderColor: sAnn.color,
-                          color: sAnn.color,
-                          backgroundColor: `${sAnn.color}15`,
-                          fontSize: (sAnn.height * 0.45) * zoomScale,
-                        }}
-                      >
-                        {sAnn.text}
-                      </div>
-                    );
-                  }
+                if (ann.type === 'stamp') {
+                  const sAnn = ann as StampAnnotation;
+                  return (
+                    <div
+                      key={sAnn.id}
+                      onPointerDown={(e) => {
+                        if (activeTool === 'select') {
+                          e.stopPropagation();
+                          setSelectedAnnId(sAnn.id);
+                          const coords = getCanvasCoords(e);
+                          setDraggingAnn({
+                            id: sAnn.id,
+                            offsetX: coords.x - sAnn.x,
+                            offsetY: coords.y - sAnn.y,
+                          });
+                        }
+                      }}
+                      className={cn(
+                        'absolute border-2 rounded-xs flex items-center justify-center font-bold tracking-wider select-none',
+                        selectedAnnId === sAnn.id
+                          ? 'ring-1 ring-[#fabd2f] cursor-move'
+                          : 'cursor-pointer'
+                      )}
+                      style={{
+                        left: sAnn.x * zoomScale,
+                        top: sAnn.y * zoomScale,
+                        width: sAnn.width * zoomScale,
+                        height: sAnn.height * zoomScale,
+                        borderColor: sAnn.color,
+                        color: sAnn.color,
+                        backgroundColor: `${sAnn.color}15`,
+                        fontSize: (sAnn.height * 0.45) * zoomScale,
+                      }}
+                    >
+                      {sAnn.text}
+                    </div>
+                  );
+                }
 
-                  if (ann.type === 'image') {
-                    const iAnn = ann as ImageAnnotation;
-                    return (
-                      <div
-                        key={iAnn.id}
-                        onPointerDown={(e) => {
-                          if (activeTool === 'select') {
-                            e.stopPropagation();
-                            setSelectedAnnId(iAnn.id);
-                            const coords = getCanvasCoords(e);
-                            setDraggingAnn({
-                              id: iAnn.id,
-                              offsetX: coords.x - iAnn.x,
-                              offsetY: coords.y - iAnn.y,
-                            });
-                          }
-                        }}
-                        className={cn(
-                          'absolute select-none',
-                          selectedAnnId === iAnn.id
-                            ? 'ring-1 ring-[#fabd2f] cursor-move'
-                            : 'cursor-pointer'
-                        )}
-                        style={{
-                          left: iAnn.x * zoomScale,
-                          top: iAnn.y * zoomScale,
-                          width: iAnn.width * zoomScale,
-                          height: iAnn.height * zoomScale,
-                        }}
-                      >
-                        <img
-                          src={iAnn.dataUrl}
-                          alt="Signature / Stamp"
-                          className="w-full h-full object-contain pointer-events-none"
-                        />
-                      </div>
-                    );
-                  }
+                if (ann.type === 'image') {
+                  const iAnn = ann as ImageAnnotation;
+                  return (
+                    <div
+                      key={iAnn.id}
+                      onPointerDown={(e) => {
+                        if (activeTool === 'select') {
+                          e.stopPropagation();
+                          setSelectedAnnId(iAnn.id);
+                          const coords = getCanvasCoords(e);
+                          setDraggingAnn({
+                            id: iAnn.id,
+                            offsetX: coords.x - iAnn.x,
+                            offsetY: coords.y - iAnn.y,
+                          });
+                        }
+                      }}
+                      className={cn(
+                        'absolute select-none',
+                        selectedAnnId === iAnn.id
+                          ? 'ring-1 ring-[#fabd2f] cursor-move'
+                          : 'cursor-pointer'
+                      )}
+                      style={{
+                        left: iAnn.x * zoomScale,
+                        top: iAnn.y * zoomScale,
+                        width: iAnn.width * zoomScale,
+                        height: iAnn.height * zoomScale,
+                      }}
+                    >
+                      <img
+                        src={iAnn.dataUrl}
+                        alt="Signature / Stamp"
+                        className="w-full h-full object-contain pointer-events-none"
+                      />
+                    </div>
+                  );
+                }
 
-                  return null;
-                })}
-              </div>
-            )}
+                return null;
+              })}
+            </div>
           </div>
 
           {/* Bottom Telemetry & Commit Footer */}
           <div className="flex items-center justify-between px-4 py-2 border-t border-[#3c3836] bg-[#1d2021]">
-            {/* Coordinate & Canvas Telemetry */}
             <div className="flex items-center gap-3 text-[11px] text-[#928374]">
               <span>
                 X: <strong className="text-[#ebdbb2]">{cursorCoords.x}</strong> Y: <strong className="text-[#ebdbb2]">{cursorCoords.y}</strong> pt
               </span>
               <span className="text-[#3c3836]">•</span>
               <span>
-                DIMENSIONS: {Math.round(pageDims.width)} × {Math.round(pageDims.height)} pt
+                {Math.round(pageDims.width)} × {Math.round(pageDims.height)} pt
               </span>
               <span className="text-[#3c3836]">•</span>
               <span>
