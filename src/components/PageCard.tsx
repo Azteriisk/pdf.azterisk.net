@@ -52,6 +52,9 @@ export function PageCard({
   isDragOver = false,
 }: PageCardProps) {
   const annotationCount = page.annotations ? page.annotations.length : 0;
+  const filledFieldCount = page.formValues
+    ? Object.values(page.formValues).filter((v) => v !== '' && v !== false && v !== undefined).length
+    : 0;
   const isLandscape = (page.rotation % 180 === 90)
     ? page.originalWidth < page.originalHeight
     : page.originalWidth > page.originalHeight;
@@ -104,6 +107,11 @@ export function PageCard({
           {annotationCount > 0 && (
             <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-[#b8bb26]/20 text-[#b8bb26] border border-[#b8bb26]/30">
               {annotationCount} EDIT{annotationCount > 1 ? 'S' : ''}
+            </span>
+          )}
+          {filledFieldCount > 0 && (
+            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-[#83a598]/20 text-[#83a598] border border-[#83a598]/30">
+              {filledFieldCount} FIELD{filledFieldCount > 1 ? 'S' : ''}
             </span>
           )}
           <span

@@ -89,7 +89,8 @@ export async function renderPageHighRes(
   arrayBuffer: ArrayBuffer,
   pageIndex: number, // 0-based
   rotation: number = 0,
-  scale: number = 1.8
+  scale: number = 1.8,
+  renderAnnotations: boolean = false
 ): Promise<{ url: string; width: number; height: number }> {
   const pdfjs = await getPdfjs();
   if (!pdfjs) throw new Error('PDF.js not available');
@@ -115,6 +116,7 @@ export async function renderPageHighRes(
   await page.render({
     canvasContext: context,
     viewport: viewport,
+    annotationMode: renderAnnotations ? 1 : 0, // 0 = AnnotationMode.DISABLE (prevents double-vision ghosting with interactive HTML overlay)
   }).promise;
 
   const url = canvas.toDataURL('image/jpeg', 0.94);

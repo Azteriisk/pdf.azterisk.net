@@ -20,6 +20,8 @@ import {
   Italic,
   Baseline,
   Loader2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   WorkspacePage,
@@ -86,6 +88,7 @@ export function PageEditorModal({
   const [pageImageUrl, setPageImageUrl] = useState<string | null>(null);
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
   const [formValues, setFormValues] = useState<Record<string, string | boolean>>({});
+  const [showFieldHighlights, setShowFieldHighlights] = useState(true);
 
   // Annotations Stack
   const [annotations, setAnnotations] = useState<PageAnnotation[]>([]);
@@ -98,8 +101,9 @@ export function PageEditorModal({
   const [rectStart, setRectStart] = useState<{ x: number; y: number } | null>(null);
   const [rectPreview, setRectPreview] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  // Selected annotation
+  // Selected annotation & Text editing focus
   const [selectedAnnId, setSelectedAnnId] = useState<string | null>(null);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [draggingAnn, setDraggingAnn] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
 
   // Signature modal
@@ -120,11 +124,18 @@ export function PageEditorModal({
         dialog.showModal();
       }
 
-      setAnnotations(page.annotations ? JSON.parse(JSON.stringify(page.annotations)) : []);
+      // Filter out empty or stale placeholder text boxes from earlier runs
+      const initialAnns = page.annotations
+        ? JSON.parse(JSON.stringify(page.annotations)).filter(
+            (a: PageAnnotation) => a.type !== 'text' || ((a as TextAnnotation).text && (a as TextAnnotation).text !== 'Type text here...' && (a as TextAnnotation).text.trim().length > 0)
+          )
+        : [];
+      setAnnotations(initialAnns);
       setFormValues(page.formValues ? { ...page.formValues } : {});
       setUndoStack([]);
       setRedoStack([]);
       setSelectedAnnId(null);
+      setEditingTextId(null);
       setPageDims({
         width: page.originalWidth || 595,
         height: page.originalHeight || 842,
@@ -288,10 +299,11 @@ export function PageEditorModal({
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } else if (activeTool === 'text') {
       // Create new text box at click position with current font, size, and color
+      const newId = generateId();
       const newText: TextAnnotation = {
-        id: generateId(),
+        id: newId,
         type: 'text',
-        text: 'Type text here...',
+        text: '',
         x: coords.x,
         y: coords.y,
         size: textSize,
@@ -302,8 +314,8 @@ export function PageEditorModal({
         hasBackground: textBackground,
       };
       pushStateToUndo([...annotations, newText]);
-      setSelectedAnnId(newText.id);
-      setActiveTool('select');
+      setSelectedAnnId(newId);
+      setEditingTextId(newId);
     } else if (activeTool === 'checkmark') {
       // Place a checkmark, cross, or dot at click position
       const newCheck: CheckmarkAnnotation = {
@@ -444,6 +456,9 @@ export function PageEditorModal({
     onClose();
   };
 
+  const selectedAnn = annotations.find((a) => a.id === selectedAnnId);
+  const isDrawingTool = activeTool === 'pen' || activeTool === 'highlighter' || activeTool === 'redact' || activeTool === 'whiteout';
+
   if (!isOpen || !page) return null;
 
   return (
@@ -465,9 +480,20 @@ export function PageEditorModal({
                 </span>
               </span>
               {formFields.length > 0 && (
-                <span className="px-2 py-0.5 rounded bg-[#83a598]/20 border border-[#83a598]/40 text-[10px] text-[#83a598]">
-                  {formFields.length} INTERACTIVE FORM FIELDS
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowFieldHighlights((v) => !v)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] transition-colors cursor-pointer border',
+                    showFieldHighlights
+                      ? 'bg-[#83a598]/20 border-[#83a598]/50 text-[#83a598] font-medium'
+                      : 'bg-[#1d2021] border-[#504945] text-[#928374] hover:text-[#ebdbb2]'
+                  )}
+                  title="Toggle highlight boxes for interactive form fields"
+                >
+                  {showFieldHighlights ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                  <span>{formFields.length} FORM FIELDS ({showFieldHighlights ? 'HIGHLIGHTS ON' : 'CLEAN VIEW'})</span>
+                </button>
               )}
             </div>
 
@@ -583,9 +609,10 @@ export function PageEditorModal({
               </div>
             </div>
 
-            {/* Sub-tool attributes (Live Font, Size, Color, Styling for Text) */}
+            {/* Sub-tool attributes */}
             <div className="flex items-center gap-3">
-              {(activeTool === 'text' || (selectedAnnId && annotations.find((a) => a.id === selectedAnnId)?.type === 'text')) && (
+              {/* Text formatting controls: show if Text tool active OR if an existing text annotation is selected */}
+              {(activeTool === 'text' || (selectedAnn && selectedAnn.type === 'text')) && (
                 <div className="flex items-center gap-2">
                   {/* Font Family */}
                   <select
@@ -787,11 +814,33 @@ export function PageEditorModal({
                 </div>
               )}
 
+              {/* Redact / Whiteout hint */}
+              {(activeTool === 'redact' || activeTool === 'whiteout') && (
+                <div className="flex items-center gap-2 text-[11px] text-[#a89984]">
+                  <span
+                    className="w-3 h-3 rounded-xs border border-[#504945]"
+                    style={{ backgroundColor: activeTool === 'whiteout' ? '#ffffff' : '#000000' }}
+                  />
+                  <span>
+                    {activeTool === 'redact'
+                      ? 'DRAG BOX TO REDACT (BLACKOUT)'
+                      : 'DRAG BOX TO WHITEOUT AREA'}
+                  </span>
+                </div>
+              )}
+
+              {/* Select mode hint when nothing is selected */}
+              {activeTool === 'select' && !selectedAnn && (
+                <span className="text-[#7c6f64] text-[11px] italic">
+                  Click a form field to fill, or click an element on canvas to select & move.
+                </span>
+              )}
+
               {selectedAnnId && (
                 <button
                   type="button"
                   onClick={handleDeleteSelectedAnn}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#cc241d]/20 text-[#fb4934] border border-[#fb4934]/30 hover:bg-[#cc241d]/40 cursor-pointer"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#cc241d]/20 text-[#fb4934] border border-[#fb4934]/30 hover:bg-[#cc241d]/40 cursor-pointer text-[11px]"
                 >
                   <Trash2 className="w-3 h-3" />
                   DELETE ELEMENT
@@ -838,17 +887,68 @@ export function PageEditorModal({
               )}
 
               {/* Interactive AcroForm Fields Overlay (if present on PDF) */}
-              {formFields.map((field) => {
-                const [x1, y1, x2, y2] = field.rect;
-                const fieldWidth = x2 - x1;
-                const fieldHeight = y2 - y1;
-                const canvasX = x1 * zoomScale;
-                const canvasY = (pageDims.height - y2) * zoomScale;
-                const canvasW = fieldWidth * zoomScale;
-                const canvasH = fieldHeight * zoomScale;
+              <div className={cn("absolute inset-0", isDrawingTool ? "pointer-events-none" : "")}>
+                {formFields.map((field) => {
+                  const [x1, y1, x2, y2] = field.rect;
+                  const fieldWidth = x2 - x1;
+                  const fieldHeight = y2 - y1;
+                  const canvasX = x1 * zoomScale;
+                  const canvasY = (pageDims.height - y2) * zoomScale;
+                  const canvasW = fieldWidth * zoomScale;
+                  const canvasH = fieldHeight * zoomScale;
 
-                if (field.type === 'checkbox') {
-                  const isChecked = Boolean(formValues[field.name]);
+                  if (field.type === 'checkbox') {
+                    const isChecked = Boolean(formValues[field.name]);
+                    const boxSize = Math.max(12, Math.min(16, fieldHeight * 0.85)) * zoomScale;
+                    return (
+                      <div
+                        key={field.name}
+                        style={{
+                          position: 'absolute',
+                          left: canvasX,
+                          top: canvasY,
+                          width: canvasW,
+                          height: canvasH,
+                        }}
+                        className={cn(
+                          'flex items-center justify-center cursor-pointer transition-colors',
+                          showFieldHighlights
+                            ? 'ring-1 ring-dashed ring-[#83a598]/40 hover:ring-[#83a598] hover:bg-[#83a598]/10'
+                            : 'hover:ring-1 hover:ring-[#83a598]/30'
+                        )}
+                        title={field.name}
+                        onClick={(e) => {
+                          if ((e.target as HTMLElement).tagName !== 'INPUT') {
+                            setFormValues((prev) => ({
+                              ...prev,
+                              [field.name]: !isChecked,
+                            }));
+                          }
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            setFormValues((prev) => ({
+                              ...prev,
+                              [field.name]: e.target.checked,
+                            }));
+                          }}
+                          style={{
+                            width: boxSize,
+                            height: boxSize,
+                          }}
+                          className="accent-[#fabd2f] cursor-pointer rounded-xs"
+                          title={field.name}
+                        />
+                      </div>
+                    );
+                  }
+
+                  // Text Field
+                  const val = (formValues[field.name] as string) || '';
+                  const hasValue = val.trim().length > 0;
                   return (
                     <div
                       key={field.name}
@@ -856,59 +956,39 @@ export function PageEditorModal({
                         position: 'absolute',
                         left: canvasX,
                         top: canvasY,
-                        width: Math.max(canvasW, 16 * zoomScale),
-                        height: Math.max(canvasH, 16 * zoomScale),
+                        width: canvasW,
+                        height: canvasH,
                       }}
-                      className="flex items-center justify-center cursor-pointer"
                     >
                       <input
-                        type="checkbox"
-                        checked={isChecked}
+                        type="text"
+                        value={val}
                         onChange={(e) => {
+                          const nextVal = e.target.value;
                           setFormValues((prev) => ({
                             ...prev,
-                            [field.name]: e.target.checked,
+                            [field.name]: nextVal,
                           }));
                         }}
-                        className="w-full h-full accent-[#fabd2f] cursor-pointer"
-                        title={`Form checkbox: ${field.name}`}
+                        placeholder=""
+                        title={field.name}
+                        className={cn(
+                          'w-full h-full px-1 outline-none font-sans transition-colors',
+                          hasValue
+                            ? 'bg-white text-[#1d2021] border border-transparent hover:border-[#83a598]/40'
+                            : showFieldHighlights
+                            ? 'bg-[#83a598]/5 border border-dashed border-[#83a598]/30 hover:bg-[#83a598]/15 hover:border-[#83a598]'
+                            : 'bg-transparent border border-transparent hover:border-[#83a598]/30 hover:bg-white/40',
+                          'focus:bg-white focus:text-[#1d2021] focus:border-[#fabd2f] focus:ring-1 focus:ring-[#fabd2f]'
+                        )}
+                        style={{
+                          fontSize: Math.max(9, Math.min(canvasH * 0.72, 14 * zoomScale)),
+                        }}
                       />
                     </div>
                   );
-                }
-
-                // Text Field
-                const val = (formValues[field.name] as string) || '';
-                return (
-                  <div
-                    key={field.name}
-                    style={{
-                      position: 'absolute',
-                      left: canvasX,
-                      top: canvasY,
-                      width: canvasW,
-                      height: canvasH,
-                    }}
-                  >
-                    <input
-                      type="text"
-                      value={val}
-                      onChange={(e) => {
-                        const nextVal = e.target.value;
-                        setFormValues((prev) => ({
-                          ...prev,
-                          [field.name]: nextVal,
-                        }));
-                      }}
-                      placeholder={`[${field.name}]`}
-                      className="w-full h-full bg-[#fabd2f]/10 hover:bg-[#fabd2f]/20 focus:bg-white text-[#1d2021] border border-[#fabd2f]/50 focus:border-[#fabd2f] px-1 outline-none font-sans"
-                      style={{
-                        fontSize: Math.min(canvasH * 0.7, 14 * zoomScale),
-                      }}
-                    />
-                  </div>
-                );
-              })}
+                })}
+              </div>
 
               {/* SVG Layer for Freehand, Highlights, and Checkmarks */}
               <svg
@@ -1078,15 +1158,43 @@ export function PageEditorModal({
                       }}
                     >
                       <input
+                        ref={(el) => {
+                          if (el && editingTextId === tAnn.id) {
+                            el.focus();
+                          }
+                        }}
                         type="text"
                         value={tAnn.text}
+                        placeholder="Type text..."
+                        onFocus={() => {
+                          setSelectedAnnId(tAnn.id);
+                          setEditingTextId(tAnn.id);
+                        }}
                         onChange={(e) => {
                           const val = e.target.value;
                           setAnnotations((prev) =>
                             prev.map((a) => (a.id === tAnn.id ? { ...a, text: val } : a))
                           );
                         }}
-                        className="bg-transparent border-none outline-none"
+                        onBlur={() => {
+                          setEditingTextId(null);
+                          if (!tAnn.text || tAnn.text.trim() === '' || tAnn.text === 'Type text here...') {
+                            setAnnotations((prev) => prev.filter((a) => a.id !== tAnn.id));
+                            if (selectedAnnId === tAnn.id) setSelectedAnnId(null);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            (e.target as HTMLInputElement).blur();
+                          } else if (e.key === 'Escape') {
+                            if (!tAnn.text || tAnn.text.trim() === '' || tAnn.text === 'Type text here...') {
+                              setAnnotations((prev) => prev.filter((a) => a.id !== tAnn.id));
+                              if (selectedAnnId === tAnn.id) setSelectedAnnId(null);
+                            }
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                        className="bg-transparent border-none outline-none placeholder:text-[#928374]/60"
                         style={{
                           fontFamily: fontCss,
                           fontSize: tAnn.size * zoomScale,
