@@ -6,7 +6,7 @@ export interface SourceDocument {
   pageCount: number;
 }
 
-export type AnnotationType = 'draw' | 'highlight' | 'text' | 'redact' | 'image' | 'stamp';
+export type AnnotationType = 'draw' | 'highlight' | 'text' | 'redact' | 'image' | 'stamp' | 'checkmark';
 
 export interface BaseAnnotation {
   id: string;
@@ -38,7 +38,19 @@ export interface TextAnnotation extends BaseAnnotation {
   y: number;
   size: number;
   color: string;
+  fontFamily?: 'helvetica' | 'times' | 'courier';
   isBold?: boolean;
+  isItalic?: boolean;
+  hasBackground?: boolean;
+}
+
+export interface CheckmarkAnnotation extends BaseAnnotation {
+  type: 'checkmark';
+  markType: 'check' | 'cross' | 'dot';
+  x: number;
+  y: number;
+  size: number;
+  color: string;
 }
 
 export interface RedactAnnotation extends BaseAnnotation {
@@ -74,9 +86,17 @@ export type PageAnnotation =
   | DrawAnnotation
   | HighlightAnnotation
   | TextAnnotation
+  | CheckmarkAnnotation
   | RedactAnnotation
   | ImageAnnotation
   | StampAnnotation;
+
+export interface FormFieldItem {
+  name: string;
+  type: 'text' | 'checkbox';
+  value: string | boolean;
+  rect: [number, number, number, number]; // [x1, y1, x2, y2]
+}
 
 export interface WorkspacePage {
   id: string;
@@ -88,6 +108,7 @@ export interface WorkspacePage {
   originalWidth: number;
   originalHeight: number;
   annotations: PageAnnotation[];
+  formValues?: Record<string, string | boolean>;
 }
 
 export interface PageNumberingOptions {

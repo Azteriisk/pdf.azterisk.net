@@ -1,5 +1,7 @@
 'use client';
 
+import { FormFieldItem } from './types';
+
 // PDF.js client-side loader and renderer
 let pdfjsLibInstance: any = null;
 
@@ -125,4 +127,41 @@ export async function renderPageHighRes(
     width: unscaledViewport.width,
     height: unscaledViewport.height,
   };
+}
+
+export async function getPageFormFields(
+  arrayBuffer: ArrayBuffer,
+  pageIndex: number, // 0-based
+  rotation: number = 0
+): Promise<FormFieldItem[]> {
+  try {
+    const pdfjs = await getPdfjs();
+    if (!pdfjs) return [];
+
+    const bufferCopy = arrayBuffer.slice(0);
+    const loadingTask = pdfjs.getDocument({ data: bufferCopy });
+    const doc = await loadingTask.promise;
+    const page = await doc.getPage(pageIndex + 1);
+
+    const annotations = await page.getAnnotations();
+    const fields: FormFieldItem[] = [];
+
+    for (const a of annotations) {
+      if (a.subtype === 'Widget' && a.fieldName) {
+        const isCheckbox = a.checkBox || a.fieldType === 'Btn';
+        const isChecked = isCheckbox && (a.fieldValue === 'Yes' || a.fieldValue === 'On' || a.fieldValue === true || a.buttonValue === true);
+        fields.push({
+          name: a.fieldName,
+          type: isCheckbox ? 'checkbox' : 'text',
+          value: isCheckbox ? isChecked : (a.fieldValue || ''),
+          rect: [a.rect[0], a.rect[1], a.rect[2], a.rect[3]],
+        });
+      }
+    }
+
+    return fields;
+  } catch (err) {
+    console.warn('Could not extract form fields for page:', err);
+    return [];
+  }
 }

@@ -15,7 +15,10 @@ import {
   ZoomIn,
   ZoomOut,
   Move,
-  RotateCw,
+  CheckSquare,
+  Bold,
+  Italic,
+  Baseline,
   Loader2,
 } from 'lucide-react';
 import {
@@ -24,11 +27,13 @@ import {
   DrawAnnotation,
   HighlightAnnotation,
   TextAnnotation,
+  CheckmarkAnnotation,
   RedactAnnotation,
   ImageAnnotation,
   StampAnnotation,
+  FormFieldItem,
 } from '@/lib/types';
-import { renderPageHighRes } from '@/lib/pdfjs-viewer';
+import { renderPageHighRes, getPageFormFields } from '@/lib/pdfjs-viewer';
 import { SignatureModal } from './SignatureModal';
 import { generateId, cn } from '@/lib/utils';
 
@@ -40,7 +45,7 @@ interface PageEditorModalProps {
   onSave: (updatedPage: WorkspacePage) => void;
 }
 
-type ToolMode = 'select' | 'pen' | 'highlighter' | 'text' | 'redact' | 'whiteout';
+type ToolMode = 'select' | 'text' | 'checkmark' | 'pen' | 'highlighter' | 'redact' | 'whiteout';
 
 export function PageEditorModal({
   page,
@@ -52,34 +57,48 @@ export function PageEditorModal({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Tools & State
-  const [activeTool, setActiveTool] = useState<ToolMode>('pen');
+  // Active Tool
+  const [activeTool, setActiveTool] = useState<ToolMode>('text');
+
+  // Text Tool Properties
+  const [fontFamily, setFontFamily] = useState<'helvetica' | 'times' | 'courier'>('helvetica');
+  const [textSize, setTextSize] = useState(14);
+  const [textColor, setTextColor] = useState('#1d2021');
+  const [textBold, setTextBold] = useState(false);
+  const [textItalic, setTextItalic] = useState(false);
+  const [textBackground, setTextBackground] = useState(false);
+
+  // Checkmark Tool Properties
+  const [markType, setMarkType] = useState<'check' | 'cross' | 'dot'>('check');
+  const [markSize, setMarkSize] = useState(16);
+  const [markColor, setMarkColor] = useState('#1d2021');
+
+  // Pen / Highlighter Properties
   const [penColor, setPenColor] = useState('#cc241d');
   const [penWidth, setPenWidth] = useState(3);
   const [highlightColor, setHighlightColor] = useState('#fabd2f');
   const [highlightWidth, setHighlightWidth] = useState(24);
-  const [textSize, setTextSize] = useState(16);
-  const [textColor, setTextColor] = useState('#1d2021');
-  const [textBold, setTextBold] = useState(true);
 
   // Zoom
   const [zoomScale, setZoomScale] = useState(1);
 
-  // Page background bitmap
+  // Background Image & Form Fields
   const [pageImageUrl, setPageImageUrl] = useState<string | null>(null);
+  const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
+  const [formValues, setFormValues] = useState<Record<string, string | boolean>>({});
 
-  // Annotations
+  // Annotations Stack
   const [annotations, setAnnotations] = useState<PageAnnotation[]>([]);
   const [undoStack, setUndoStack] = useState<PageAnnotation[][]>([]);
   const [redoStack, setRedoStack] = useState<PageAnnotation[][]>([]);
 
-  // Drawing in progress
+  // Drawing state
   const [currentDrawPoints, setCurrentDrawPoints] = useState<Array<{ x: number; y: number }>>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [rectStart, setRectStart] = useState<{ x: number; y: number } | null>(null);
   const [rectPreview, setRectPreview] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  // Selected annotation for dragging/editing
+  // Selected annotation
   const [selectedAnnId, setSelectedAnnId] = useState<string | null>(null);
   const [draggingAnn, setDraggingAnn] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
 
@@ -91,7 +110,7 @@ export function PageEditorModal({
   const [pageDims, setPageDims] = useState<{ width: number; height: number }>({ width: 600, height: 800 });
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
 
-  // Initialize dialog and load high-res rendering
+  // Load preview & form fields
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -102,6 +121,7 @@ export function PageEditorModal({
       }
 
       setAnnotations(page.annotations ? JSON.parse(JSON.stringify(page.annotations)) : []);
+      setFormValues(page.formValues ? { ...page.formValues } : {});
       setUndoStack([]);
       setRedoStack([]);
       setSelectedAnnId(null);
@@ -110,33 +130,68 @@ export function PageEditorModal({
         height: page.originalHeight || 842,
       });
 
-      // Show immediate thumbnail preview so canvas is NEVER blank
       if (page.thumbnailUrl) {
         setPageImageUrl(page.thumbnailUrl);
       }
 
-      // Render high-res version in parallel
       if (pdfArrayBuffer) {
         setIsLoadingPdf(true);
+        // Render high-res
         renderPageHighRes(pdfArrayBuffer, page.sourcePageIndex, page.rotation, 1.8)
           .then(({ url, width, height }) => {
             setPageImageUrl(url);
             setPageDims({ width, height });
           })
-          .catch((err) => {
-            console.error('Failed to render high-res page:', err);
+          .catch((err) => console.error('Failed to render high-res page:', err))
+          .finally(() => setIsLoadingPdf(false));
+
+        // Detect interactive AcroForms on this page
+        getPageFormFields(pdfArrayBuffer, page.sourcePageIndex, page.rotation)
+          .then((fields) => {
+            setFormFields(fields);
+            // Prepopulate formValues if not already set
+            setFormValues((prev) => {
+              const updated = { ...prev };
+              for (const f of fields) {
+                if (updated[f.name] === undefined) {
+                  updated[f.name] = f.value;
+                }
+              }
+              return updated;
+            });
           })
-          .finally(() => {
-            setIsLoadingPdf(false);
-          });
+          .catch((err) => console.warn('Could not extract form fields:', err));
       }
     } else {
       if (dialog.open) {
         dialog.close();
       }
       setPageImageUrl(null);
+      setFormFields([]);
     }
   }, [isOpen, page, pdfArrayBuffer]);
+
+  // Sync toolbar with selected text annotation
+  useEffect(() => {
+    if (!selectedAnnId) return;
+    const ann = annotations.find((a) => a.id === selectedAnnId);
+    if (ann && ann.type === 'text') {
+      const t = ann as TextAnnotation;
+      setFontFamily(t.fontFamily || 'helvetica');
+      setTextSize(t.size || 14);
+      setTextColor(t.color || '#1d2021');
+      setTextBold(Boolean(t.isBold));
+      setTextItalic(Boolean(t.isItalic));
+      setTextBackground(Boolean(t.hasBackground));
+    }
+  }, [selectedAnnId, annotations]);
+
+  const updateSelectedTextAnnotation = (updates: Partial<TextAnnotation>) => {
+    if (!selectedAnnId) return;
+    setAnnotations((prev) =>
+      prev.map((a) => (a.id === selectedAnnId && a.type === 'text' ? { ...a, ...updates } : a))
+    );
+  };
 
   const pushStateToUndo = useCallback((newAnns: PageAnnotation[]) => {
     setUndoStack((prev) => [...prev, annotations]);
@@ -168,7 +223,7 @@ export function PageEditorModal({
     setSelectedAnnId(null);
   }, [selectedAnnId, annotations, pushStateToUndo]);
 
-  // Keyboard accelerators inside modal
+  // Keyboard accelerators
   useEffect(() => {
     if (!isOpen) return;
 
@@ -177,11 +232,8 @@ export function PageEditorModal({
 
       if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
-        }
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
       } else if (e.key === 'y' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         handleRedo();
@@ -189,12 +241,14 @@ export function PageEditorModal({
         handleDeleteSelectedAnn();
       } else if (e.key === 'v' || e.key === 'V') {
         setActiveTool('select');
+      } else if (e.key === 't' || e.key === 'T') {
+        setActiveTool('text');
+      } else if (e.key === 'c' || e.key === 'C') {
+        setActiveTool('checkmark');
       } else if (e.key === 'p' || e.key === 'P') {
         setActiveTool('pen');
       } else if (e.key === 'h' || e.key === 'H') {
         setActiveTool('highlighter');
-      } else if (e.key === 't' || e.key === 'T') {
-        setActiveTool('text');
       } else if (e.key === 'r' || e.key === 'R') {
         setActiveTool('redact');
       }
@@ -233,6 +287,7 @@ export function PageEditorModal({
       setRectPreview({ x: coords.x, y: coords.y, w: 0, h: 0 });
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } else if (activeTool === 'text') {
+      // Create new text box at click position with current font, size, and color
       const newText: TextAnnotation = {
         id: generateId(),
         type: 'text',
@@ -241,11 +296,27 @@ export function PageEditorModal({
         y: coords.y,
         size: textSize,
         color: textColor,
+        fontFamily: fontFamily,
         isBold: textBold,
+        isItalic: textItalic,
+        hasBackground: textBackground,
       };
       pushStateToUndo([...annotations, newText]);
       setSelectedAnnId(newText.id);
       setActiveTool('select');
+    } else if (activeTool === 'checkmark') {
+      // Place a checkmark, cross, or dot at click position
+      const newCheck: CheckmarkAnnotation = {
+        id: generateId(),
+        type: 'checkmark',
+        markType: markType,
+        x: coords.x,
+        y: coords.y,
+        size: markSize,
+        color: markColor,
+      };
+      pushStateToUndo([...annotations, newCheck]);
+      setSelectedAnnId(newCheck.id);
     }
   };
 
@@ -368,6 +439,7 @@ export function PageEditorModal({
     onSave({
       ...page,
       annotations,
+      formValues,
     });
     onClose();
   };
@@ -392,10 +464,9 @@ export function PageEditorModal({
                   ({page.sourceDocName})
                 </span>
               </span>
-              {isLoadingPdf && (
-                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#32302f] border border-[#504945] text-[10px] text-[#fabd2f]">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>HQ RENDERING...</span>
+              {formFields.length > 0 && (
+                <span className="px-2 py-0.5 rounded bg-[#83a598]/20 border border-[#83a598]/40 text-[10px] text-[#83a598]">
+                  {formFields.length} INTERACTIVE FORM FIELDS
                 </span>
               )}
             </div>
@@ -442,14 +513,6 @@ export function PageEditorModal({
               >
                 <ZoomIn className="w-3.5 h-3.5" />
               </button>
-              <button
-                type="button"
-                onClick={() => setZoomScale(1)}
-                className="px-1.5 py-0.5 rounded text-[10px] text-[#928374] hover:text-[#ebdbb2] hover:bg-[#32302f] cursor-pointer"
-                title="Reset Zoom to 100%"
-              >
-                1:1
-              </button>
 
               <div className="h-3.5 w-px bg-[#3c3836] mx-1" />
 
@@ -465,13 +528,14 @@ export function PageEditorModal({
 
           {/* Tools Palette Ribbon */}
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-[#282828] border-b border-[#3c3836]">
-            {/* Tool selectors with keyboard accelerator labels */}
+            {/* Tool selectors */}
             <div className="flex flex-wrap items-center gap-1">
               {[
                 { id: 'select' as ToolMode, label: 'SELECT [V]', icon: Move },
+                { id: 'text' as ToolMode, label: 'FILL / TEXT [T]', icon: Type },
+                { id: 'checkmark' as ToolMode, label: 'CHECK (✓) [C]', icon: CheckSquare },
                 { id: 'pen' as ToolMode, label: 'PEN [P]', icon: PenTool },
                 { id: 'highlighter' as ToolMode, label: 'HIGHLIGHT [H]', icon: Highlighter },
-                { id: 'text' as ToolMode, label: 'TEXT [T]', icon: Type },
                 { id: 'redact' as ToolMode, label: 'REDACT [R]', icon: Square },
                 { id: 'whiteout' as ToolMode, label: 'WHITEOUT', icon: Square },
               ].map((t) => {
@@ -519,8 +583,159 @@ export function PageEditorModal({
               </div>
             </div>
 
-            {/* Sub-tool attributes */}
+            {/* Sub-tool attributes (Live Font, Size, Color, Styling for Text) */}
             <div className="flex items-center gap-3">
+              {(activeTool === 'text' || (selectedAnnId && annotations.find((a) => a.id === selectedAnnId)?.type === 'text')) && (
+                <div className="flex items-center gap-2">
+                  {/* Font Family */}
+                  <select
+                    value={fontFamily}
+                    onChange={(e) => {
+                      const fam = e.target.value as 'helvetica' | 'times' | 'courier';
+                      setFontFamily(fam);
+                      updateSelectedTextAnnotation({ fontFamily: fam });
+                    }}
+                    className="bg-[#1d2021] border border-[#504945] rounded px-2 py-0.5 text-[11px] text-[#fbf1c7] outline-none"
+                    title="Font family (Standard PDF base fonts)"
+                  >
+                    <option value="helvetica">Helvetica (Sans)</option>
+                    <option value="times">Times Roman (Serif)</option>
+                    <option value="courier">Courier (Mono)</option>
+                  </select>
+
+                  {/* Font Size */}
+                  <select
+                    value={textSize}
+                    onChange={(e) => {
+                      const sz = parseInt(e.target.value, 10);
+                      setTextSize(sz);
+                      updateSelectedTextAnnotation({ size: sz });
+                    }}
+                    className="bg-[#1d2021] border border-[#504945] rounded px-1.5 py-0.5 text-[11px] text-[#fbf1c7] outline-none"
+                    title="Font size (pt)"
+                  >
+                    {[10, 12, 14, 16, 18, 20, 24, 32].map((sz) => (
+                      <option key={sz} value={sz}>{sz}pt</option>
+                    ))}
+                  </select>
+
+                  {/* Bold & Italic Toggles */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !textBold;
+                      setTextBold(next);
+                      updateSelectedTextAnnotation({ isBold: next });
+                    }}
+                    className={cn(
+                      'p-1 rounded cursor-pointer border',
+                      textBold ? 'bg-[#fabd2f] text-[#1d2021] border-[#fabd2f]' : 'bg-[#1d2021] text-[#ebdbb2] border-[#3c3836]'
+                    )}
+                    title="Bold"
+                  >
+                    <Bold className="w-3 h-3" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !textItalic;
+                      setTextItalic(next);
+                      updateSelectedTextAnnotation({ isItalic: next });
+                    }}
+                    className={cn(
+                      'p-1 rounded cursor-pointer border',
+                      textItalic ? 'bg-[#fabd2f] text-[#1d2021] border-[#fabd2f]' : 'bg-[#1d2021] text-[#ebdbb2] border-[#3c3836]'
+                    )}
+                    title="Italic"
+                  >
+                    <Italic className="w-3 h-3" />
+                  </button>
+
+                  {/* Opaque Whiteout Background for blank lines */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !textBackground;
+                      setTextBackground(next);
+                      updateSelectedTextAnnotation({ hasBackground: next });
+                    }}
+                    className={cn(
+                      'px-1.5 py-0.5 rounded text-[10px] cursor-pointer border',
+                      textBackground ? 'bg-[#fbf1c7] text-[#1d2021] font-bold border-[#fbf1c7]' : 'bg-[#1d2021] text-[#a89984] border-[#3c3836]'
+                    )}
+                    title="Opaque white background to cleanly cover printed answer lines on worksheets"
+                  >
+                    MASK LINE
+                  </button>
+
+                  {/* Color Swatches */}
+                  <div className="flex items-center gap-1.5 ml-1">
+                    {[
+                      { hex: '#1d2021', title: 'Black' },
+                      { hex: '#0f3460', title: 'Navy Blue' },
+                      { hex: '#458588', title: 'Blue' },
+                      { hex: '#cc241d', title: 'Crimson' },
+                      { hex: '#98971a', title: 'Green' },
+                    ].map((c) => (
+                      <button
+                        key={c.hex}
+                        type="button"
+                        onClick={() => {
+                          setTextColor(c.hex);
+                          updateSelectedTextAnnotation({ color: c.hex });
+                        }}
+                        className={cn(
+                          'w-4 h-4 rounded-xs border transition-transform cursor-pointer',
+                          textColor === c.hex ? 'scale-125 border-[#fabd2f]' : 'border-transparent'
+                        )}
+                        style={{ backgroundColor: c.hex }}
+                        title={c.title}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Checkmark sub-tools */}
+              {activeTool === 'checkmark' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[#928374]">MARK:</span>
+                  {[
+                    { id: 'check' as const, label: '✓ Check' },
+                    { id: 'cross' as const, label: '✗ Cross' },
+                    { id: 'dot' as const, label: '● Dot' },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setMarkType(m.id)}
+                      className={cn(
+                        'px-2 py-0.5 rounded text-[10px] cursor-pointer',
+                        markType === m.id ? 'bg-[#fabd2f] text-[#1d2021] font-bold' : 'bg-[#1d2021] text-[#ebdbb2]'
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                  <div className="flex items-center gap-1.5 ml-1">
+                    {['#1d2021', '#0f3460', '#cc241d', '#98971a'].map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setMarkColor(c)}
+                        className={cn(
+                          'w-4 h-4 rounded-xs border transition-transform cursor-pointer',
+                          markColor === c ? 'scale-120 border-[#fabd2f]' : 'border-transparent'
+                        )}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Pen sub-tools */}
               {activeTool === 'pen' && (
                 <div className="flex items-center gap-2">
                   <span className="text-[#928374]">INK:</span>
@@ -553,6 +768,7 @@ export function PageEditorModal({
                 </div>
               )}
 
+              {/* Highlighter sub-tools */}
               {activeTool === 'highlighter' && (
                 <div className="flex items-center gap-2">
                   <span className="text-[#928374]">COLOR:</span>
@@ -595,7 +811,7 @@ export function PageEditorModal({
                 'relative shadow-2xl rounded-xs bg-white select-none touch-none',
                 activeTool === 'pen' || activeTool === 'highlighter' ? 'cursor-crosshair' : '',
                 activeTool === 'redact' || activeTool === 'whiteout' ? 'cursor-cell' : '',
-                activeTool === 'text' ? 'cursor-text' : '',
+                activeTool === 'text' || activeTool === 'checkmark' ? 'cursor-text' : '',
                 activeTool === 'select' ? 'cursor-default' : ''
               )}
               style={{
@@ -603,7 +819,7 @@ export function PageEditorModal({
                 height: pageDims.height * zoomScale,
               }}
             >
-              {/* PDF Page Background Image (Reliable, never blank, crisp rendering) */}
+              {/* PDF Background Image */}
               {pageImageUrl ? (
                 <img
                   src={pageImageUrl}
@@ -621,11 +837,85 @@ export function PageEditorModal({
                 </div>
               )}
 
-              {/* SVG Layer for Freehand & Highlights */}
+              {/* Interactive AcroForm Fields Overlay (if present on PDF) */}
+              {formFields.map((field) => {
+                const [x1, y1, x2, y2] = field.rect;
+                const fieldWidth = x2 - x1;
+                const fieldHeight = y2 - y1;
+                const canvasX = x1 * zoomScale;
+                const canvasY = (pageDims.height - y2) * zoomScale;
+                const canvasW = fieldWidth * zoomScale;
+                const canvasH = fieldHeight * zoomScale;
+
+                if (field.type === 'checkbox') {
+                  const isChecked = Boolean(formValues[field.name]);
+                  return (
+                    <div
+                      key={field.name}
+                      style={{
+                        position: 'absolute',
+                        left: canvasX,
+                        top: canvasY,
+                        width: Math.max(canvasW, 16 * zoomScale),
+                        height: Math.max(canvasH, 16 * zoomScale),
+                      }}
+                      className="flex items-center justify-center cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          setFormValues((prev) => ({
+                            ...prev,
+                            [field.name]: e.target.checked,
+                          }));
+                        }}
+                        className="w-full h-full accent-[#fabd2f] cursor-pointer"
+                        title={`Form checkbox: ${field.name}`}
+                      />
+                    </div>
+                  );
+                }
+
+                // Text Field
+                const val = (formValues[field.name] as string) || '';
+                return (
+                  <div
+                    key={field.name}
+                    style={{
+                      position: 'absolute',
+                      left: canvasX,
+                      top: canvasY,
+                      width: canvasW,
+                      height: canvasH,
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={val}
+                      onChange={(e) => {
+                        const nextVal = e.target.value;
+                        setFormValues((prev) => ({
+                          ...prev,
+                          [field.name]: nextVal,
+                        }));
+                      }}
+                      placeholder={`[${field.name}]`}
+                      className="w-full h-full bg-[#fabd2f]/10 hover:bg-[#fabd2f]/20 focus:bg-white text-[#1d2021] border border-[#fabd2f]/50 focus:border-[#fabd2f] px-1 outline-none font-sans"
+                      style={{
+                        fontSize: Math.min(canvasH * 0.7, 14 * zoomScale),
+                      }}
+                    />
+                  </div>
+                );
+              })}
+
+              {/* SVG Layer for Freehand, Highlights, and Checkmarks */}
               <svg
                 className="absolute inset-0 w-full h-full pointer-events-none"
                 viewBox={`0 0 ${pageDims.width} ${pageDims.height}`}
               >
+                {/* Freehand drawings */}
                 {annotations
                   .filter((a) => a.type === 'draw')
                   .map((ann) => {
@@ -648,6 +938,7 @@ export function PageEditorModal({
                     );
                   })}
 
+                {/* Live stroke in progress */}
                 {isDrawing && currentDrawPoints.length > 1 && (
                   <path
                     d={currentDrawPoints
@@ -661,6 +952,49 @@ export function PageEditorModal({
                     fill="none"
                   />
                 )}
+
+                {/* Checkmarks & Crossmarks */}
+                {annotations
+                  .filter((a) => a.type === 'checkmark')
+                  .map((ann) => {
+                    const cAnn = ann as CheckmarkAnnotation;
+                    const size = cAnn.size || 16;
+                    const x = cAnn.x;
+                    const y = cAnn.y;
+
+                    if (cAnn.markType === 'cross') {
+                      const half = size / 2;
+                      return (
+                        <g key={cAnn.id} stroke={cAnn.color} strokeWidth={2.5} strokeLinecap="round">
+                          <line x1={x - half} y1={y - half} x2={x + half} y2={y + half} />
+                          <line x1={x - half} y1={y + half} x2={x + half} y2={y - half} />
+                        </g>
+                      );
+                    }
+                    if (cAnn.markType === 'dot') {
+                      return (
+                        <circle
+                          key={cAnn.id}
+                          cx={x}
+                          cy={y}
+                          r={size / 3}
+                          fill={cAnn.color}
+                        />
+                      );
+                    }
+                    // Standard Checkmark
+                    return (
+                      <polyline
+                        key={cAnn.id}
+                        points={`${x - size * 0.4},${y} ${x - size * 0.1},${y + size * 0.35} ${x + size * 0.45},${y - size * 0.4}`}
+                        stroke={cAnn.color}
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        fill="none"
+                      />
+                    );
+                  })}
               </svg>
 
               {/* Redaction preview */}
@@ -681,7 +1015,7 @@ export function PageEditorModal({
                 />
               )}
 
-              {/* Committed Annotations */}
+              {/* Committed Annotations (Text, Redaction, Stamps, Signatures) */}
               {annotations.map((ann) => {
                 if (ann.type === 'redact') {
                   const rAnn = ann as RedactAnnotation;
@@ -709,6 +1043,13 @@ export function PageEditorModal({
 
                 if (ann.type === 'text') {
                   const tAnn = ann as TextAnnotation;
+                  const fontCss =
+                    tAnn.fontFamily === 'times'
+                      ? 'ui-serif, Georgia, serif'
+                      : tAnn.fontFamily === 'courier'
+                      ? 'ui-monospace, Courier, monospace'
+                      : 'ui-sans-serif, Arial, sans-serif';
+
                   return (
                     <div
                       key={tAnn.id}
@@ -727,8 +1068,9 @@ export function PageEditorModal({
                       className={cn(
                         'absolute p-0.5 rounded-xs transition-shadow',
                         selectedAnnId === tAnn.id
-                          ? 'ring-1 ring-[#fabd2f] bg-[#fabd2f]/10 cursor-move'
-                          : 'cursor-pointer'
+                          ? 'ring-1 ring-[#fabd2f] cursor-move'
+                          : 'cursor-pointer',
+                        tAnn.hasBackground ? 'bg-white shadow-xs' : ''
                       )}
                       style={{
                         left: tAnn.x * zoomScale,
@@ -744,11 +1086,13 @@ export function PageEditorModal({
                             prev.map((a) => (a.id === tAnn.id ? { ...a, text: val } : a))
                           );
                         }}
-                        className="bg-transparent border-none outline-none font-sans"
+                        className="bg-transparent border-none outline-none"
                         style={{
+                          fontFamily: fontCss,
                           fontSize: tAnn.size * zoomScale,
                           color: tAnn.color,
                           fontWeight: tAnn.isBold ? 'bold' : 'normal',
+                          fontStyle: tAnn.isItalic ? 'italic' : 'normal',
                         }}
                       />
                     </div>
@@ -846,7 +1190,7 @@ export function PageEditorModal({
               </span>
               <span className="text-[#3c3836]">•</span>
               <span>
-                {Math.round(pageDims.width)} × {Math.round(pageDims.height)} pt
+                DIMENSIONS: {Math.round(pageDims.width)} × {Math.round(pageDims.height)} pt
               </span>
               <span className="text-[#3c3836]">•</span>
               <span>
